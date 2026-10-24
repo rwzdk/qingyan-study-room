@@ -4,6 +4,8 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import type { StudyRoomScene } from './study-room-scene';
+
 // ─────────────────────────────────────────────────────────────
 // 常量 / 类型 / 地块生成（复刻 summer-checkin 的 React 版本）
 // ─────────────────────────────────────────────────────────────
@@ -30,7 +32,7 @@ interface Tile {
   cluster: number;
 }
 
-type SceneType = 'rain' | 'snow' | 'cloud';
+type SceneType = StudyRoomScene;
 
 interface Props {
   totalCheckins?: number;
@@ -153,10 +155,187 @@ const PALETTE_CLOUD: Palette = {
   sceneIntensity: 1.28,
 };
 
+const PALETTE_STARRY: Palette = {
+  ...PALETTE_SNOW,
+  treeTrunk: '#5b5b72',
+  treeCrown1: '#7886c8',
+  treeCrown2: '#6876b8',
+  treeCrown3: '#5967a8',
+  treeCrown4: '#4c5a98',
+  fern1: '#5f6fa0',
+  fern2: '#7182b4',
+  rock1: '#4b5670',
+  rock2: '#65718c',
+  pond: '#6f86c9',
+  pondFlower: '#d8c8ff',
+  waterTop: '#7f9fe8',
+  rockTop: '#7f8bb0',
+  mossTop: '#6474a4',
+  forestTop: '#5c6ba0',
+  tileSide: '#1a2438',
+  riverTop: '#7f9fe8',
+  riverEmissive: '#101c3a',
+  villageWall: '#c8c2d8',
+  villageRoof: '#7a5a7a',
+  villageTop: '#a8b0d0',
+  sceneSky: '#b9c6ff',
+  sceneGround: '#0a1020',
+  sceneIntensity: 1.15,
+};
+
+const PALETTE_COAST: Palette = {
+  ...PALETTE_RAIN,
+  treeTrunk: '#7a6a4e',
+  treeCrown1: '#4fa89a',
+  treeCrown2: '#5fb8a8',
+  treeCrown3: '#6fc8b6',
+  treeCrown4: '#80d6c4',
+  fern1: '#5bb8a8',
+  fern2: '#70c8b8',
+  rock1: '#7a8f8a',
+  rock2: '#94a8a0',
+  pond: '#7fd8c8',
+  pondFlower: '#ffe1b8',
+  waterTop: '#6fd8d0',
+  rockTop: '#9ab8b0',
+  mossTop: '#70c8b8',
+  forestTop: '#5fc0b0',
+  tileSide: '#1e3e3c',
+  riverTop: '#48c8d8',
+  riverEmissive: '#0a3038',
+  villageWall: '#e8dcc0',
+  villageRoof: '#b86a4a',
+  villageTop: '#9ab8a8',
+  sceneSky: '#d8f4f0',
+  sceneGround: '#0d2828',
+  sceneIntensity: 1.35,
+};
+
+const PALETTE_DAWN: Palette = {
+  ...PALETTE_CLOUD,
+  treeTrunk: '#8a6e52',
+  treeCrown1: '#a8c888',
+  treeCrown2: '#b8d698',
+  treeCrown3: '#c8e2a8',
+  treeCrown4: '#d8ecb8',
+  fern1: '#b8d498',
+  fern2: '#c8e0a8',
+  rock1: '#a89078',
+  rock2: '#c0a88a',
+  pond: '#a8c8d8',
+  pondFlower: '#ffd8c0',
+  waterTop: '#9ac8d8',
+  rockTop: '#d8c8a8',
+  mossTop: '#c8e0a8',
+  forestTop: '#b8d698',
+  tileSide: '#3e3428',
+  riverTop: '#9ac8d8',
+  riverEmissive: '#2a2c2c',
+  villageWall: '#f4e0c0',
+  villageRoof: '#b8784a',
+  villageTop: '#d8c8a8',
+  sceneSky: '#ffe0b8',
+  sceneGround: '#3a2e22',
+  sceneIntensity: 1.4,
+};
+
+const PALETTE_SUMMER: Palette = {
+  ...PALETTE_RAIN,
+  treeCrown1: '#6fc45a',
+  treeCrown2: '#7ed468',
+  treeCrown3: '#8ee478',
+  treeCrown4: '#a0f088',
+  fern1: '#78d060',
+  fern2: '#8ee078',
+  rock1: '#7a9a6a',
+  rock2: '#96b080',
+  pond: '#7fe06a',
+  pondFlower: '#fff0a8',
+  waterTop: '#5fd8b8',
+  rockTop: '#9ab87a',
+  mossTop: '#8ee078',
+  forestTop: '#7ed068',
+  tileSide: '#2a4a28',
+  riverTop: '#48d8c8',
+  riverEmissive: '#0a3028',
+  villageWall: '#f4e8c8',
+  villageRoof: '#d87a4a',
+  villageTop: '#b8c890',
+  sceneSky: '#fff0b8',
+  sceneGround: '#1a2e1a',
+  sceneIntensity: 1.45,
+};
+
+const PALETTE_POOL: Palette = {
+  ...PALETTE_RAIN,
+  treeTrunk: '#8a7a5e',
+  treeCrown1: '#5fc8a0',
+  treeCrown2: '#6fd8b0',
+  treeCrown3: '#80e8c0',
+  treeCrown4: '#90f0d0',
+  fern1: '#60d0b0',
+  fern2: '#78e0c0',
+  rock1: '#b8b0a0',
+  rock2: '#d0c8b8',
+  pond: '#5fe0e0',
+  pondFlower: '#fff0c0',
+  waterTop: '#5fe0e0',
+  rockTop: '#e0d8c8',
+  mossTop: '#80e8c0',
+  forestTop: '#6fd8b0',
+  tileSide: '#2a4a48',
+  riverTop: '#48d8e8',
+  riverEmissive: '#0a3038',
+  villageWall: '#f8f0dc',
+  villageRoof: '#c87a5a',
+  villageTop: '#d8f0e0',
+  sceneSky: '#e0ffff',
+  sceneGround: '#103030',
+  sceneIntensity: 1.5,
+};
+
+const PALETTE_WHEAT: Palette = {
+  ...PALETTE_CLOUD,
+  treeTrunk: '#8a6a3e',
+  treeCrown1: '#e8c060',
+  treeCrown2: '#f0cc70',
+  treeCrown3: '#f8d880',
+  treeCrown4: '#ffe490',
+  fern1: '#d8c070',
+  fern2: '#e8d080',
+  rock1: '#b8a070',
+  rock2: '#d0b888',
+  pond: '#c8d0a0',
+  pondFlower: '#fff0c0',
+  waterTop: '#8ab8c8',
+  rockTop: '#e8d0a0',
+  mossTop: '#e8d080',
+  forestTop: '#d8c060',
+  tileSide: '#4a3a20',
+  riverTop: '#a8c8d0',
+  riverEmissive: '#302a20',
+  villageWall: '#f8e8c8',
+  villageRoof: '#b8784a',
+  villageTop: '#e8d8b0',
+  sceneSky: '#ffe4a8',
+  sceneGround: '#3a2e18',
+  sceneIntensity: 1.4,
+};
+
+const SCENE_PALETTES: Record<StudyRoomScene, Palette> = {
+  rain: PALETTE_RAIN,
+  snow: PALETTE_SNOW,
+  cloud: PALETTE_CLOUD,
+  starry: PALETTE_STARRY,
+  coast: PALETTE_COAST,
+  dawn: PALETTE_DAWN,
+  summer: PALETTE_SUMMER,
+  pool: PALETTE_POOL,
+  wheat: PALETTE_WHEAT,
+};
+
 function paletteForScene(scene: SceneType): Palette {
-  if (scene === 'snow') return PALETTE_SNOW;
-  if (scene === 'cloud') return PALETTE_CLOUD;
-  return PALETTE_RAIN;
+  return SCENE_PALETTES[scene] ?? PALETTE_RAIN;
 }
 
 // ── 地块生成 ──

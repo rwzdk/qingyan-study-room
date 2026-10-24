@@ -29,9 +29,6 @@ const todayCheckins = computed(
 
 const sceneCopy = computed(() => getStudyRoomSceneCopy(props.scene));
 
-// 3D 小岛沿用三套基础配色，新场景映射到最接近的一套。
-const islandScene = computed(() => sceneCopy.value.islandScene);
-
 /** 已打卡日期集合（YYYY-MM-DD）。 */
 const checkedSet = computed(() => new Set(checkins.value.map((item) => item.date)));
 
@@ -197,7 +194,7 @@ function cellTitle(cell: HeatCell): string {
         <LearningIsland
           :total-checkins="totalCheckins"
           :today-checkins="todayCheckins"
-          :scene="islandScene"
+          :scene="props.scene"
         />
       </div>
 
@@ -302,9 +299,14 @@ function cellTitle(cell: HeatCell): string {
 .island-metrics {
   display: flex;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 18%, transparent);
   border-radius: 10px;
-  background: rgb(0 0 0 / 0.25);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 9%,
+    rgb(0 0 0 / 0.27)
+  );
   backdrop-filter: blur(12px);
 }
 

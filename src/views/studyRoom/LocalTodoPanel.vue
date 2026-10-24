@@ -214,9 +214,14 @@ watch(
   height: 520px;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 0.09);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 16%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, rgb(20 26 20) 58%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 7%,
+    rgb(20 26 20 / 0.58)
+  );
   box-shadow: 0 18px 55px rgb(0 0 0 / 0.16);
   backdrop-filter: blur(24px);
 }

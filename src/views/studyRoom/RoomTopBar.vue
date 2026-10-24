@@ -459,9 +459,14 @@ onBeforeUnmount(() => {
   max-height: min(72vh, 420px);
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid rgb(255 255 255 / 0.12);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 20%, transparent);
   border-radius: 14px;
-  background: rgb(14 22 18 / 0.96);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 8%,
+    rgb(14 22 18 / 0.96)
+  );
   box-shadow: 0 16px 44px rgb(0 0 0 / 0.4);
   backdrop-filter: blur(24px);
 }
@@ -650,9 +655,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 2px;
   padding: 6px;
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 18%, transparent);
   border-radius: 999px;
-  background: rgb(10 18 15 / 0.62);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 10%,
+    rgb(10 18 15 / 0.66)
+  );
   box-shadow: 0 10px 34px rgb(0 0 0 / 0.28);
   backdrop-filter: blur(20px);
 }
@@ -750,9 +760,14 @@ onBeforeUnmount(() => {
   max-height: calc(100dvh - 140px);
   overflow-y: auto;
   padding: 18px;
-  border: 1px solid rgb(255 255 255 / 0.14);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 22%, transparent);
   border-radius: 22px;
-  background: rgb(9 17 14 / 0.94);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 10%,
+    rgb(9 17 14 / 0.94)
+  );
   box-shadow: 0 24px 70px rgb(0 0 0 / 0.48);
   color: #fff;
   backdrop-filter: blur(24px);
@@ -793,7 +808,8 @@ onBeforeUnmount(() => {
   height: 32px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid rgb(255 255 255 / 0.14);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 18%, transparent);
   border-radius: 50%;
   color: rgb(255 255 255 / 0.7);
   background: transparent;

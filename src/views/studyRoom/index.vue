@@ -105,7 +105,11 @@ onBeforeUnmount(() => {
   <div
     class="study-room-page"
     :data-scene="scene"
-    :style="{ '--study-room-primary': sceneCopy.primary, backgroundImage: sceneBg }"
+    :style="{
+      '--study-room-primary': sceneCopy.primary,
+      '--study-room-secondary': sceneCopy.secondary,
+      backgroundImage: sceneBg,
+    }"
   >
     <RoomTopBar
       :scene="scene"
@@ -165,10 +169,48 @@ onBeforeUnmount(() => {
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgb(0 0 0 / 0.55) 0%,
-    rgb(0 0 0 / 0.25) 40%,
-    rgb(0 0 0 / 0.55) 100%
+    color-mix(
+        in srgb,
+        var(--study-room-secondary, #5ab8b0) 22%,
+        rgb(0 0 0 / 0.6)
+      )
+      0%,
+    rgb(0 0 0 / 0.34) 42%,
+    color-mix(
+        in srgb,
+        var(--study-room-primary, #d7ef83) 16%,
+        rgb(0 0 0 / 0.65)
+      )
+      100%
   );
+}
+
+/* 场景辅助色形成的柔和光晕，让页面氛围随背景一起变化。 */
+.study-room-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 16% 10%,
+      color-mix(
+        in srgb,
+        var(--study-room-primary, #d7ef83) 14%,
+        transparent
+      ),
+      transparent 42%
+    ),
+    radial-gradient(
+      circle at 84% 84%,
+      color-mix(
+        in srgb,
+        var(--study-room-secondary, #5ab8b0) 16%,
+        transparent
+      ),
+      transparent 52%
+    );
+  opacity: 0.85;
 }
 
 .study-room-page > * {

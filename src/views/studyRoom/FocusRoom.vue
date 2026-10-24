@@ -177,9 +177,14 @@ function exitImmersive() {
   gap: 4px;
   margin-bottom: 20px;
   padding: 4px;
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 14%, transparent);
   border-radius: 8px;
-  background: rgb(0 0 0 / 0.1);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 7%,
+    rgb(0 0 0 / 0.12)
+  );
 }
 
 .preset-bar button {

@@ -40,15 +40,24 @@
 
 /* 玻璃面板 */
 .study-room-extension .sr-panel {
-  border: 1px solid rgb(255 255 255 / 0.14);
+  border: 1px solid
+    color-mix(in srgb, var(--study-room-primary, #d7ef83) 20%, transparent);
   border-radius: 14px;
-  background: rgb(0 0 0 / 0.28);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 8%,
+    rgb(0 0 0 / 0.3)
+  );
   backdrop-filter: blur(14px);
   color: #fff;
 }
 
 .study-room-extension .sr-panel--hover:hover {
-  background: rgb(0 0 0 / 0.38);
+  background: color-mix(
+    in srgb,
+    var(--study-room-secondary, #5ab8b0) 14%,
+    rgb(0 0 0 / 0.4)
+  );
 }
 
 /* 指标卡片 */

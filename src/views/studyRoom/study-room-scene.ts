@@ -15,7 +15,6 @@ export type StudyRoomScene =
   | 'wheat';
 
 export type SceneAmbientPreset = 'rain' | 'snow' | 'cloud';
-export type SceneIslandPalette = 'rain' | 'snow' | 'cloud';
 
 export interface StudyRoomSceneCopy {
   labelShort: string;
@@ -23,9 +22,9 @@ export interface StudyRoomSceneCopy {
   roomTitle: string;
   roomSlogan: string;
   primary: string;
+  /** 页面光效和玻璃面板的辅助色。 */
+  secondary: string;
   quotes: string[];
-  /** 3D 小岛使用的基础配色。 */
-  islandScene: SceneIslandPalette;
   /** 白噪音合成预设；cloud 为静音。 */
   ambientPreset: SceneAmbientPreset;
 }
@@ -42,7 +41,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '雨落进书页的缝隙，时间便有了声音。',
       '每一滴雨，都在为坚持的你鼓掌。',
     ],
-    islandScene: 'rain',
+    secondary: '#5ab8b0',
     ambientPreset: 'rain',
   },
   snow: {
@@ -56,7 +55,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '雪花从不会急着落对地方，你也不必慌张。',
       '最安静的雪天，最适合听自己成长的声音。',
     ],
-    islandScene: 'snow',
+    secondary: '#9ab0c8',
     ambientPreset: 'snow',
   },
   cloud: {
@@ -70,7 +69,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '把心挂在云上，再沉的事也会变轻。',
       '云知道所有答案，你只需慢慢向前。',
     ],
-    islandScene: 'cloud',
+    secondary: '#b8c0c8',
     ambientPreset: 'cloud',
   },
   starry: {
@@ -84,7 +83,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '把今天写进夜里，明天会记得。',
       '在星河下，慢慢来也是一种前进。',
     ],
-    islandScene: 'snow',
+    secondary: '#7d8cff',
     ambientPreset: 'snow',
   },
   coast: {
@@ -98,7 +97,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '把烦恼交给海浪，把专注留给书页。',
       '海风吹过的地方，心也会变得开阔。',
     ],
-    islandScene: 'rain',
+    secondary: '#5bb8d4',
     ambientPreset: 'cloud',
   },
   dawn: {
@@ -112,7 +111,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '新的一天，从一个安静的早晨开始。',
       '把第一束光，留给最重要的事。',
     ],
-    islandScene: 'cloud',
+    secondary: '#f2a65e',
     ambientPreset: 'cloud',
   },
   summer: {
@@ -126,7 +125,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '阳光落在桌上，正好照亮下一行。',
       '夏天适合慢一点，也适合再坚持一会儿。',
     ],
-    islandScene: 'rain',
+    secondary: '#9bd36a',
     ambientPreset: 'cloud',
   },
   pool: {
@@ -140,7 +139,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '让波浪负责流动，你负责专注。',
       '池边的风，会把杂念吹远。',
     ],
-    islandScene: 'rain',
+    secondary: '#4aa8e0',
     ambientPreset: 'cloud',
   },
   wheat: {
@@ -154,7 +153,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '每一页书，都在为秋天积蓄。',
       '在麦田边，把今天认真收好。',
     ],
-    islandScene: 'cloud',
+    secondary: '#d98f4a',
     ambientPreset: 'cloud',
   },
 };
