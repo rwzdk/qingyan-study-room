@@ -1,0 +1,33 @@
+:root {
+  --qc-ink: #18181b;
+  --qc-muted: #52525b;
+  --qc-bar: transparent;
+  --qc-bar-border: rgb(255 255 255 / 0.12);
+  --study-room-primary: #d7ef83;
+  color-scheme: dark;
+  font-family:
+    'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #1b2019;
+  color: var(--qc-ink);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}

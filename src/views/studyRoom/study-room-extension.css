@@ -1,0 +1,180 @@
+/*
+ * 自习室扩展模块（小岛/计划/阅读/主页）共享的玻璃面板视觉。
+ * 这些样式作用于 .study-room-extension 容器内的元素，透出场景背景。
+ */
+
+.study-room-extension {
+  color: #fff;
+}
+
+.study-room-extension .sr-ext-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0 8px;
+}
+
+.study-room-extension .sr-ext-header h1 {
+  margin: 4px 0 0;
+  color: #fff;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.study-room-extension .sr-ext-header .subtitle {
+  margin: 8px 0 0;
+  color: rgb(255 255 255 / 0.72);
+  font-size: 15px;
+}
+
+.study-room-extension .eyebrow {
+  margin: 0 0 8px;
+  color: var(--study-room-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* 玻璃面板 */
+.study-room-extension .sr-panel {
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 14px;
+  background: rgb(0 0 0 / 0.28);
+  backdrop-filter: blur(14px);
+  color: #fff;
+}
+
+.study-room-extension .sr-panel--hover:hover {
+  background: rgb(0 0 0 / 0.38);
+}
+
+/* 指标卡片 */
+.study-room-extension .sr-metric {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.study-room-extension .sr-metric-icon {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 8px;
+  color: var(--study-room-primary);
+  background: rgb(255 255 255 / 0.04);
+}
+
+.study-room-extension .sr-metric-label {
+  font-size: 11px;
+  color: rgb(255 255 255 / 0.5);
+}
+
+.study-room-extension .sr-metric-value {
+  margin-top: 2px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.study-room-extension .sr-metric-unit {
+  margin-left: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: rgb(255 255 255 / 0.4);
+}
+
+/* 按钮 */
+.study-room-extension .sr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 999px;
+  color: #051612;
+  background: var(--study-room-primary);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--study-room-primary) 28%, transparent);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.18s ease;
+}
+
+.study-room-extension .sr-btn:hover {
+  transform: scale(1.03);
+  background: color-mix(in srgb, var(--study-room-primary) 90%, black);
+}
+
+.study-room-extension .sr-btn--ghost {
+  border: 1px solid rgb(255 255 255 / 0.18);
+  color: #fff;
+  background: rgb(0 0 0 / 0.28);
+  box-shadow: none;
+  backdrop-filter: blur(12px);
+}
+
+.study-room-extension .sr-btn--ghost:hover {
+  background: rgb(0 0 0 / 0.42);
+}
+
+/* 空状态 */
+.study-room-extension .sr-empty {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  border: 1px dashed rgb(255 255 255 / 0.16);
+  border-radius: 14px;
+  color: rgb(255 255 255 / 0.45);
+  background: rgb(0 0 0 / 0.15);
+  text-align: center;
+}
+
+.study-room-extension .sr-empty h3 {
+  margin: 0;
+  color: rgb(255 255 255 / 0.7);
+  font-size: 16px;
+}
+
+.study-room-extension .sr-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* 输入框 */
+.study-room-extension .sr-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 10px;
+  outline: none;
+  color: #fff;
+  background: rgb(0 0 0 / 0.28);
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+}
+
+.study-room-extension .sr-input::placeholder {
+  color: rgb(255 255 255 / 0.35);
+}
+
+.study-room-extension .sr-input:focus {
+  border-color: color-mix(in srgb, var(--study-room-primary) 60%, transparent);
+}
