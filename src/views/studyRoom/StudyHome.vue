@@ -13,6 +13,7 @@ import {
   useLocalUser,
 } from '#/lib/local-user';
 import { STATIC_MODE } from '#/lib/app-mode';
+import { currentUser } from '#/lib/local-auth';
 import { account } from '#/session/session-state';
 import {
   retrySync,
@@ -87,9 +88,16 @@ function saveProfile() {
 const userAvatar = computed(
   () => profile.avatar || account.value?.picture || defaultAvatarImg,
 );
-const userNickname = computed(
-  () => profile.nickname || account.value?.name || '学习者',
-);
+const userNickname = computed(() => {
+  const profileName = profile.nickname.trim();
+  if (profileName && profileName !== '学习者') return profileName;
+  return (
+    currentUser.value?.username ||
+    account.value?.name ||
+    profileName ||
+    '学习者'
+  );
+});
 
 // —— 账号同步状态（与顶栏账号菜单共用 store）——
 const SYNC_LABEL: Record<SyncStatus, string> = {
@@ -327,7 +335,7 @@ const hasAnyData = computed(
           <p class="profile-eyebrow">Personal space</p>
           <h2>{{ userNickname }}</h2>
           <p class="profile-email">
-            {{ STATIC_MODE ? '本地模式 · 数据只保存在当前浏览器' : '已登录 · 数据自动同步' }}
+            {{ STATIC_MODE ? '本地账号 · 数据保存在当前浏览器' : '已登录 · 数据自动同步' }}
           </p>
           <p v-if="!STATIC_MODE" class="profile-sync" :class="`is-${syncStatus}`">
             <IconifyIcon

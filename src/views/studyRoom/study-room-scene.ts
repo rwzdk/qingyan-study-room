@@ -14,8 +14,6 @@ export type StudyRoomScene =
   | 'pool'
   | 'wheat';
 
-export type SceneAmbientPreset = 'rain' | 'snow' | 'cloud';
-
 export interface StudyRoomSceneCopy {
   labelShort: string;
   labelLong: string;
@@ -24,9 +22,9 @@ export interface StudyRoomSceneCopy {
   primary: string;
   /** 页面光效和玻璃面板的辅助色。 */
   secondary: string;
+  /** 背景音名称，显示在背景选择器和音量面板里。 */
+  soundLabel: string;
   quotes: string[];
-  /** 白噪音合成预设；cloud 为静音。 */
-  ambientPreset: SceneAmbientPreset;
 }
 
 export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
@@ -42,7 +40,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '每一滴雨，都在为坚持的你鼓掌。',
     ],
     secondary: '#5ab8b0',
-    ambientPreset: 'rain',
+    soundLabel: '雨声',
   },
   snow: {
     labelShort: '雪日',
@@ -56,7 +54,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '最安静的雪天，最适合听自己成长的声音。',
     ],
     secondary: '#9ab0c8',
-    ambientPreset: 'snow',
+    soundLabel: '雪落',
   },
   cloud: {
     labelShort: '暖云',
@@ -70,7 +68,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '云知道所有答案，你只需慢慢向前。',
     ],
     secondary: '#b8c0c8',
-    ambientPreset: 'cloud',
+    soundLabel: '云影',
   },
   starry: {
     labelShort: '星夜',
@@ -84,7 +82,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '在星河下，慢慢来也是一种前进。',
     ],
     secondary: '#7d8cff',
-    ambientPreset: 'snow',
+    soundLabel: '夜虫',
   },
   coast: {
     labelShort: '海岸',
@@ -98,7 +96,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '海风吹过的地方，心也会变得开阔。',
     ],
     secondary: '#5bb8d4',
-    ambientPreset: 'cloud',
+    soundLabel: '海浪',
   },
   dawn: {
     labelShort: '晨光',
@@ -112,7 +110,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '把第一束光，留给最重要的事。',
     ],
     secondary: '#f2a65e',
-    ambientPreset: 'cloud',
+    soundLabel: '晨鸟',
   },
   summer: {
     labelShort: '夏日',
@@ -126,7 +124,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '夏天适合慢一点，也适合再坚持一会儿。',
     ],
     secondary: '#9bd36a',
-    ambientPreset: 'cloud',
+    soundLabel: '蝉鸣',
   },
   pool: {
     labelShort: '池边',
@@ -140,7 +138,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '池边的风，会把杂念吹远。',
     ],
     secondary: '#4aa8e0',
-    ambientPreset: 'cloud',
+    soundLabel: '水光',
   },
   wheat: {
     labelShort: '麦田',
@@ -154,7 +152,7 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '在麦田边，把今天认真收好。',
     ],
     secondary: '#d98f4a',
-    ambientPreset: 'cloud',
+    soundLabel: '麦浪',
   },
 };
 

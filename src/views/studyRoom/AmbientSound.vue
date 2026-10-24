@@ -10,9 +10,7 @@ const props = defineProps<{
   scene: StudyRoomScene;
 }>();
 
-const ambientPreset = computed(
-  () => getStudyRoomSceneCopy(props.scene).ambientPreset,
-);
+const sceneCopy = computed(() => getStudyRoomSceneCopy(props.scene));
 
 const volume = ref(0.3);
 const open = ref(false);
@@ -30,7 +28,7 @@ watch(volume, (v) => {
 });
 
 onMounted(() => {
-  engine = createAmbientEngine(ambientPreset.value, volumeRef.value);
+  engine = createAmbientEngine(props.scene, volumeRef.value);
 
   // 浏览器自动播放策略：必须先有用户手势才能起 AudioContext。
   // 首屏静默等待首次点击/按键，之后环境音自然接入。
@@ -57,7 +55,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  ambientPreset,
+  () => props.scene,
   (next) => {
     void engine?.setPreset(next);
   },
@@ -118,7 +116,8 @@ function handleMouseDown(event: MouseEvent) {
       <button
         type="button"
         class="ambient-sound-btn"
-        aria-label="调节音量"
+        :aria-label="`调节音量，当前环境音：${sceneCopy.soundLabel}`"
+        :title="`环境音：${sceneCopy.soundLabel}`"
         :aria-expanded="open"
         @click="toggleOpen"
       >

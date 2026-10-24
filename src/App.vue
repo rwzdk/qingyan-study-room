@@ -3,14 +3,13 @@ import { defineAsyncComponent } from 'vue';
 
 import { STATIC_MODE } from '#/lib/app-mode';
 
-const SessionGate = STATIC_MODE
-  ? null
+const AuthGate = STATIC_MODE
+  ? defineAsyncComponent(() => import('#/views/auth/LocalAuthGate.vue'))
   : defineAsyncComponent(() => import('#/views/auth/SessionGate.vue'));
 </script>
 
 <template>
-  <component :is="SessionGate" v-if="SessionGate">
+  <AuthGate>
     <router-view />
-  </component>
-  <router-view v-else />
+  </AuthGate>
 </template>

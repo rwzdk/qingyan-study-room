@@ -12,9 +12,15 @@ import {
 } from '#/api/study-room-sync';
 import { STATIC_MODE } from '#/lib/app-mode';
 import {
+  LEGACY_MIGRATED_KEY,
+  localProfileKey,
+  localStateKey,
+} from '#/lib/local-auth';
+import {
   isValidJoinedAt,
   profile,
   profilePayload,
+  resetProfile,
   sanitizeAvatar,
   sanitizeNickname,
   setProfile,
@@ -185,28 +191,57 @@ function writeCache(pendingFlag: boolean, baseUpdatedAt: string | null): void {
 }
 
 function writeStaticSnapshot(): void {
+  const currentUserId = userId.value;
+  if (!currentUserId) return;
   writeJson(
-    LEGACY_STATE_KEY,
+    localStateKey(currentUserId),
     normalizeStudyRoomState(state.value) ?? emptyStudyRoomState(),
   );
-  writeJson(LEGACY_PROFILE_KEY, {
+  writeJson(localProfileKey(currentUserId), {
     nickname: profile.nickname,
     avatar: profile.avatar,
     joinedAt: isValidJoinedAt(profile.joinedAt) ? profile.joinedAt : todayKey(),
   });
 }
 
-if (STATIC_MODE) {
-  state.value =
-    normalizeStudyRoomState(readJson<unknown>(LEGACY_STATE_KEY, null)) ??
-    emptyStudyRoomState();
-  userId.value = 'local';
-  loaded.value = true;
-  syncStatus.value = 'synced';
-  const cachedProfile = parseCachedProfile(
-    readJson<unknown>(LEGACY_PROFILE_KEY, null),
-  );
+/** 静态模式登录后加载该本地账号的数据；首次账号会接管旧版单用户数据。 */
+export function hydrateLocalUser(userIdValue: string): void {
+  if (!STATIC_MODE || !userIdValue) return;
+  clearSaveTimer();
+  const stateKey = localStateKey(userIdValue);
+  const profileKey = localProfileKey(userIdValue);
+  let rawState = readJson<unknown>(stateKey, null);
+  let rawProfile = readJson<unknown>(profileKey, null);
+
+  if (
+    rawState === null &&
+    rawProfile === null &&
+    !readRaw(LEGACY_MIGRATED_KEY) &&
+    hasLegacyLocalData()
+  ) {
+    const legacy = readLegacyLocalData();
+    rawState = legacy?.state ?? null;
+    rawProfile = legacy?.profile ?? null;
+    if (rawState !== null) writeJson(stateKey, rawState);
+    if (rawProfile !== null) writeJson(profileKey, rawProfile);
+    writeJson(LEGACY_MIGRATED_KEY, userIdValue);
+  }
+
+  state.value = normalizeStudyRoomState(rawState) ?? emptyStudyRoomState();
+  const cachedProfile = parseCachedProfile(rawProfile);
   if (cachedProfile) setProfile(cachedProfile);
+  else resetProfile();
+
+  userId.value = userIdValue;
+  updatedAt.value = null;
+  pending = false;
+  queued = false;
+  unknownOutcome = false;
+  conflict.value = null;
+  error.value = '';
+  loaded.value = true;
+  loading.value = false;
+  syncStatus.value = 'synced';
 }
 
 function markSyncError(message: string, outcomeUnknown: boolean): void {
@@ -647,6 +682,7 @@ export function resetForLogout(): void {
   conflict.value = null;
   updatedAt.value = null;
   state.value = emptyStudyRoomState();
+  resetProfile();
   clearStudyRoomCache();
 }
 

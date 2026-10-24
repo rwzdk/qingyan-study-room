@@ -26,10 +26,10 @@ const router = useRouter();
 type RoomTab = 'focus' | 'island' | 'plans' | 'docs' | 'home';
 
 const TAB_ITEMS: { key: RoomTab; icon: string; label: string }[] = [
-  { key: 'island', icon: 'lucide:map-pin', label: '小岛' },
+  { key: 'island', icon: 'lucide:mountain', label: '小岛' },
   { key: 'focus', icon: 'lucide:timer', label: '专注室' },
   { key: 'plans', icon: 'lucide:list-checks', label: '计划' },
-  { key: 'docs', icon: 'lucide:file-text', label: '阅读' },
+  { key: 'docs', icon: 'lucide:book-open', label: '阅读' },
   { key: 'home', icon: 'lucide:chart-line-up', label: '主页' },
 ];
 

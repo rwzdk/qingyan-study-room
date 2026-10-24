@@ -4,8 +4,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessageBox } from 'element-plus';
 
 import defaultAvatar from '#/assets/defaultUserAvatar.png';
+import BrandMark from '#/components/BrandMark.vue';
 import IconifyIcon from '#/components/IconifyIcon.vue';
 import { STATIC_MODE } from '#/lib/app-mode';
+import { currentUser, logoutLocalAccount } from '#/lib/local-auth';
 import { useLocalUser } from '#/lib/local-user';
 import { logoutLocal } from '#/session/session-gate';
 import { account } from '#/session/session-state';
@@ -31,14 +33,25 @@ const { syncStatus, error: syncError } = useStudyRoomState();
 
 const menuOpen = ref(false);
 const sceneMenuOpen = ref(false);
+const localMenuOpen = ref(false);
 const retrying = ref(false);
 
 /** 头像优先级：自选头像 → Qoder 头像 → 内置默认头像。 */
 const avatar = computed(
   () => profile.avatar || account.value?.picture || defaultAvatar,
 );
-const nickname = computed(
-  () => profile.nickname || account.value?.name || '学习者',
+const nickname = computed(() => {
+  const profileName = profile.nickname.trim();
+  if (profileName && profileName !== '学习者') return profileName;
+  return (
+    currentUser.value?.username ||
+    account.value?.name ||
+    profileName ||
+    '学习者'
+  );
+});
+const localUsername = computed(
+  () => currentUser.value?.username || '本地账号',
 );
 const qoderAvatar = computed(
   () => account.value?.picture || profile.avatar || defaultAvatar,
@@ -90,6 +103,7 @@ function closeMenu() {
 
 function toggleMenu() {
   sceneMenuOpen.value = false;
+  localMenuOpen.value = false;
   menuOpen.value = !menuOpen.value;
 }
 
@@ -99,7 +113,41 @@ function closeSceneMenu() {
 
 function toggleSceneMenu() {
   menuOpen.value = false;
+  localMenuOpen.value = false;
   sceneMenuOpen.value = !sceneMenuOpen.value;
+}
+
+function closeLocalMenu() {
+  localMenuOpen.value = false;
+}
+
+function toggleLocalMenu() {
+  sceneMenuOpen.value = false;
+  menuOpen.value = false;
+  localMenuOpen.value = !localMenuOpen.value;
+}
+
+function openLocalHome() {
+  closeLocalMenu();
+  emit('switch-tab', 'home');
+}
+
+async function confirmLocalLogout() {
+  try {
+    await ElMessageBox.confirm(
+      '退出本地账号？本机数据会保留，下次登录仍可继续使用。',
+      '退出登录？',
+      {
+        confirmButtonText: '退出登录',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    );
+  } catch {
+    return;
+  }
+  closeLocalMenu();
+  logoutLocalAccount();
 }
 
 function selectScene(value: StudyRoomScene) {
@@ -114,10 +162,11 @@ function openProfile() {
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return;
-  if (menuOpen.value || sceneMenuOpen.value) {
+  if (menuOpen.value || sceneMenuOpen.value || localMenuOpen.value) {
     event.preventDefault();
     closeMenu();
     closeSceneMenu();
+    closeLocalMenu();
   }
 }
 
@@ -167,7 +216,7 @@ onBeforeUnmount(() => {
     <!-- 顶部居中悬浮胶囊导航（对齐原项目 dashboard-nav） -->
     <nav class="nav-capsule" aria-label="自习室导航">
       <div class="nav-brand">
-        <span class="nav-brand-icon"><IconifyIcon icon="lucide:leaf" /></span>
+        <span class="nav-brand-icon"><BrandMark /></span>
         <span class="nav-brand-name">清砚自习室</span>
       </div>
 
@@ -198,6 +247,7 @@ onBeforeUnmount(() => {
         :class="{ active: activeTab === item.key }"
         @click="emit('switch-tab', item.key)"
       >
+        <IconifyIcon :icon="item.icon" class="nav-item-icon" />
         {{ item.label }}
       </button>
     </nav>
@@ -249,7 +299,7 @@ onBeforeUnmount(() => {
           <span class="scene-card-shade" />
           <span class="scene-card-copy">
             <strong>{{ option.copy.labelLong }}</strong>
-            <small>{{ option.copy.roomSlogan }}</small>
+            <small>{{ option.copy.roomSlogan }} · {{ option.copy.soundLabel }}</small>
           </span>
           <span
             v-if="scene === option.value"
@@ -351,21 +401,72 @@ onBeforeUnmount(() => {
           </p>
         </div>
       </div>
-      <button
-        v-else
-        type="button"
-        class="user-avatar-btn"
-        :aria-label="`${nickname}的本地资料`"
-        :title="`${nickname} · 回到主页编辑资料`"
-        @click="emit('switch-tab', 'home')"
-      >
-        <img
-          :src="avatar"
-          alt="头像"
-          class="user-avatar-img"
-          referrerpolicy="no-referrer"
+      <div v-else class="user-menu-wrap">
+        <button
+          type="button"
+          class="user-avatar-btn"
+          :aria-label="`${localUsername}的本地账号菜单`"
+          :title="`${localUsername} · 本地账号`"
+          aria-haspopup="dialog"
+          :aria-expanded="localMenuOpen"
+          @click="toggleLocalMenu"
+        >
+          <img
+            :src="avatar"
+            alt="头像"
+            class="user-avatar-img"
+            referrerpolicy="no-referrer"
+          />
+        </button>
+
+        <div
+          v-if="localMenuOpen"
+          class="user-menu-backdrop"
+          aria-hidden="true"
+          @click="closeLocalMenu"
         />
-      </button>
+
+        <div
+          v-if="localMenuOpen"
+          class="user-menu local-user-menu"
+          role="dialog"
+          aria-label="本地账号"
+        >
+          <div class="user-menu-head">
+            <img
+              :src="avatar"
+              alt=""
+              class="user-menu-avatar"
+              referrerpolicy="no-referrer"
+            />
+            <div class="user-menu-head-copy">
+              <strong>{{ localUsername }}</strong>
+              <span>本地账号</span>
+            </div>
+          </div>
+
+          <p class="user-menu-note local-user-note">
+            数据保存在当前浏览器
+          </p>
+
+          <div class="user-menu-divider" aria-hidden="true" />
+
+          <button type="button" class="user-menu-item" @click="openLocalHome">
+            <IconifyIcon icon="lucide:user" />
+            个人主页
+          </button>
+          <button
+            type="button"
+            class="user-menu-item is-danger"
+            @click="confirmLocalLogout"
+          >
+            <IconifyIcon icon="lucide:log-out" />
+            退出登录
+          </button>
+
+          <p class="user-menu-note">退出不会删除本机数据。</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -680,9 +781,11 @@ onBeforeUnmount(() => {
   height: 30px;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  color: #051612;
-  background: var(--study-room-primary);
+  overflow: hidden;
+  border-radius: 9px;
+  box-shadow:
+    0 4px 14px rgb(0 0 0 / 0.24),
+    0 0 0 1px rgb(255 255 255 / 0.08) inset;
 }
 
 .nav-brand-name {
@@ -693,6 +796,9 @@ onBeforeUnmount(() => {
 }
 
 .nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 14px;
   border: 0;
   border-radius: 999px;
@@ -703,6 +809,25 @@ onBeforeUnmount(() => {
   font-weight: 600;
   white-space: nowrap;
   transition: all 0.18s ease;
+}
+
+.nav-item-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  opacity: 0.62;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.nav-item:hover .nav-item-icon,
+.nav-item.active .nav-item-icon {
+  opacity: 1;
+}
+
+.nav-item.active .nav-item-icon {
+  transform: scale(1.04);
 }
 
 .nav-item:hover {
@@ -965,6 +1090,16 @@ onBeforeUnmount(() => {
 
   .nav-capsule::-webkit-scrollbar {
     display: none;
+  }
+
+  .nav-item {
+    gap: 5px;
+    padding: 8px 11px;
+  }
+
+  .nav-item-icon {
+    width: 14px;
+    height: 14px;
   }
 
   .user-menu {

@@ -15,7 +15,9 @@
  * 雪声则是几乎全频带的低通噪声 + 极缓慢起伏，安静、绵密。
  */
 
-export type AmbientPreset = 'rain' | 'snow' | 'cloud';
+import type { StudyRoomScene } from './study-room-scene';
+
+export type AmbientPreset = StudyRoomScene;
 
 interface LayerHandle {
   stop: () => void;
@@ -247,6 +249,315 @@ function buildSnow(ctx: AudioContext, out: GainNode): LayerHandle {
   return { stop: () => stops.forEach((fn) => fn()) };
 }
 
+interface NoiseLayerOptions {
+  pink?: boolean;
+  seconds?: number;
+  gain: number;
+  highpass?: number;
+  lowpass?: number;
+  bandpass?: { frequency: number; q: number };
+  lfo?: { base: number; depth: number; rate: number; phase?: number };
+  am?: { rate: number; depth: number };
+}
+
+function buildNoiseLayer(
+  ctx: AudioContext,
+  out: GainNode,
+  options: NoiseLayerOptions,
+): LayerHandle {
+  const stops: Array<() => void> = [];
+  const source = ctx.createBufferSource();
+  source.buffer = options.pink
+    ? createPinkNoiseBuffer(ctx, options.seconds ?? 7)
+    : createNoiseBuffer(ctx, options.seconds ?? 5);
+  source.loop = true;
+
+  let node: AudioNode = source;
+  if (options.highpass) {
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = options.highpass;
+    node.connect(highpass);
+    node = highpass;
+  }
+  if (options.lowpass) {
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = options.lowpass;
+    lowpass.Q.value = 0.5;
+    node.connect(lowpass);
+    node = lowpass;
+  }
+  if (options.bandpass) {
+    const bandpass = ctx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.value = options.bandpass.frequency;
+    bandpass.Q.value = options.bandpass.q;
+    node.connect(bandpass);
+    node = bandpass;
+  }
+
+  const gain = ctx.createGain();
+  gain.gain.value = options.gain;
+  node.connect(gain);
+  gain.connect(out);
+  source.start();
+  stops.push(() => source.stop());
+
+  if (options.lfo) {
+    const lfo = makeLfoGain(
+      ctx,
+      gain.gain,
+      options.lfo.base,
+      options.lfo.depth,
+      options.lfo.rate,
+      options.lfo.phase ?? 0,
+    );
+    stops.push(() => lfo.stop());
+  }
+  if (options.am) {
+    const am = makeLfoGain(
+      ctx,
+      gain.gain,
+      options.gain,
+      options.am.depth,
+      options.am.rate,
+    );
+    stops.push(() => am.stop());
+  }
+
+  return { stop: () => stops.forEach((fn) => fn()) };
+}
+
+interface ChirpOptions {
+  minDelay: number;
+  maxDelay: number;
+  minFreq: number;
+  maxFreq: number;
+  duration: number;
+  gain: number;
+  pulsesMin: number;
+  pulsesMax: number;
+  glide?: number;
+}
+
+/** 短促的鸟鸣/虫鸣/水滴：用定时器随机触发，返回清理函数。 */
+function scheduleChirps(
+  ctx: AudioContext,
+  out: GainNode,
+  options: ChirpOptions,
+): () => void {
+  let timer = 0;
+  let stopped = false;
+
+  const pulse = (start: number, frequency: number): void => {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(frequency, start);
+    if (options.glide) {
+      osc.frequency.exponentialRampToValueAtTime(
+        Math.max(180, frequency * options.glide),
+        start + options.duration,
+      );
+    }
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(options.gain, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      start + options.duration,
+    );
+    osc.connect(gain);
+    gain.connect(out);
+    osc.start(start);
+    osc.stop(start + options.duration + 0.03);
+  };
+
+  const schedule = (): void => {
+    if (stopped) return;
+    const now = ctx.currentTime;
+    const count =
+      options.pulsesMin +
+      Math.floor(
+        Math.random() * (options.pulsesMax - options.pulsesMin + 1),
+      );
+    for (let i = 0; i < count; i += 1) {
+      pulse(
+        now + i * 0.11,
+        options.minFreq + Math.random() * (options.maxFreq - options.minFreq),
+      );
+    }
+    timer = window.setTimeout(
+      schedule,
+      options.minDelay + Math.random() * (options.maxDelay - options.minDelay),
+    );
+  };
+
+  timer = window.setTimeout(schedule, 500 + Math.random() * 900);
+  return () => {
+    stopped = true;
+    window.clearTimeout(timer);
+  };
+}
+
+function buildCloud(ctx: AudioContext, out: GainNode): LayerHandle {
+  return buildNoiseLayer(ctx, out, {
+    pink: true,
+    highpass: 120,
+    lowpass: 450,
+    gain: 0.12,
+    lfo: { base: 0.12, depth: 0.035, rate: 0.04 },
+  });
+}
+
+function buildStarry(ctx: AudioContext, out: GainNode): LayerHandle {
+  const wind = buildNoiseLayer(ctx, out, {
+    pink: true,
+    highpass: 180,
+    lowpass: 900,
+    gain: 0.12,
+    lfo: { base: 0.12, depth: 0.03, rate: 0.04 },
+  });
+  const crickets = scheduleChirps(ctx, out, {
+    minDelay: 1200,
+    maxDelay: 3400,
+    minFreq: 4200,
+    maxFreq: 5400,
+    duration: 0.04,
+    gain: 0.012,
+    pulsesMin: 2,
+    pulsesMax: 4,
+  });
+  return {
+    stop: () => {
+      wind.stop();
+      crickets();
+    },
+  };
+}
+
+function buildCoast(ctx: AudioContext, out: GainNode): LayerHandle {
+  const swell = buildNoiseLayer(ctx, out, {
+    pink: true,
+    highpass: 100,
+    lowpass: 780,
+    gain: 0.24,
+    lfo: { base: 0.24, depth: 0.1, rate: 0.07 },
+  });
+  const foam = buildNoiseLayer(ctx, out, {
+    bandpass: { frequency: 1550, q: 0.7 },
+    gain: 0.06,
+    lfo: { base: 0.06, depth: 0.03, rate: 0.13, phase: 0.8 },
+  });
+  return {
+    stop: () => {
+      swell.stop();
+      foam.stop();
+    },
+  };
+}
+
+function buildDawn(ctx: AudioContext, out: GainNode): LayerHandle {
+  const wind = buildNoiseLayer(ctx, out, {
+    pink: true,
+    highpass: 160,
+    lowpass: 820,
+    gain: 0.12,
+    lfo: { base: 0.12, depth: 0.03, rate: 0.05 },
+  });
+  const birds = scheduleChirps(ctx, out, {
+    minDelay: 3000,
+    maxDelay: 6800,
+    minFreq: 2400,
+    maxFreq: 3800,
+    duration: 0.13,
+    gain: 0.018,
+    pulsesMin: 2,
+    pulsesMax: 3,
+    glide: 1.18,
+  });
+  return {
+    stop: () => {
+      wind.stop();
+      birds();
+    },
+  };
+}
+
+function buildSummer(ctx: AudioContext, out: GainNode): LayerHandle {
+  const cicada = buildNoiseLayer(ctx, out, {
+    bandpass: { frequency: 4800, q: 8 },
+    gain: 0.032,
+    am: { rate: 46, depth: 0.018 },
+  });
+  const leaves = buildNoiseLayer(ctx, out, {
+    highpass: 2400,
+    lowpass: 6200,
+    gain: 0.04,
+    lfo: { base: 0.04, depth: 0.018, rate: 0.32 },
+  });
+  return {
+    stop: () => {
+      cicada.stop();
+      leaves.stop();
+    },
+  };
+}
+
+function buildPool(ctx: AudioContext, out: GainNode): LayerHandle {
+  const lapping = buildNoiseLayer(ctx, out, {
+    pink: true,
+    highpass: 120,
+    lowpass: 900,
+    gain: 0.18,
+    lfo: { base: 0.18, depth: 0.07, rate: 0.11 },
+  });
+  const shimmer = buildNoiseLayer(ctx, out, {
+    bandpass: { frequency: 2600, q: 0.8 },
+    gain: 0.025,
+    lfo: { base: 0.025, depth: 0.015, rate: 0.22, phase: 0.5 },
+  });
+  const droplets = scheduleChirps(ctx, out, {
+    minDelay: 1400,
+    maxDelay: 3800,
+    minFreq: 720,
+    maxFreq: 1300,
+    duration: 0.09,
+    gain: 0.012,
+    pulsesMin: 1,
+    pulsesMax: 2,
+    glide: 0.8,
+  });
+  return {
+    stop: () => {
+      lapping.stop();
+      shimmer.stop();
+      droplets();
+    },
+  };
+}
+
+function buildWheat(ctx: AudioContext, out: GainNode): LayerHandle {
+  const wind = buildNoiseLayer(ctx, out, {
+    pink: true,
+    highpass: 100,
+    lowpass: 760,
+    gain: 0.2,
+    lfo: { base: 0.2, depth: 0.06, rate: 0.06 },
+  });
+  const rustle = buildNoiseLayer(ctx, out, {
+    bandpass: { frequency: 3100, q: 0.9 },
+    gain: 0.05,
+    lfo: { base: 0.05, depth: 0.025, rate: 0.4, phase: 0.6 },
+  });
+  return {
+    stop: () => {
+      wind.stop();
+      rustle.stop();
+    },
+  };
+}
+
 export interface AmbientEngine {
   setPreset: (preset: AmbientPreset) => void;
   setVolume: (value: number) => void;
@@ -255,7 +566,7 @@ export interface AmbientEngine {
   isRunning: () => boolean;
 }
 /**
- * 创建环境音引擎。cloud 为静默场景（保留接口一致性）。
+ * 创建环境音引擎。九套场景各自对应合成环境音。
  * volume 由外部滑块控制，内部用 masterGain 平滑过渡，避免突兀。
  */
 export function createAmbientEngine(initialPreset: AmbientPreset, volume: number): AmbientEngine {
@@ -296,11 +607,36 @@ export function createAmbientEngine(initialPreset: AmbientPreset, volume: number
     stopLayer();
     const context = ensureContext();
     if (!context || !master) return;
-    if (nextPreset === 'cloud') return;
-    if (nextPreset === 'rain') {
-      layer = buildRain(context, master);
-    } else {
-      layer = buildSnow(context, master);
+    switch (nextPreset) {
+      case 'rain':
+        layer = buildRain(context, master);
+        break;
+      case 'snow':
+        layer = buildSnow(context, master);
+        break;
+      case 'cloud':
+        layer = buildCloud(context, master);
+        break;
+      case 'starry':
+        layer = buildStarry(context, master);
+        break;
+      case 'coast':
+        layer = buildCoast(context, master);
+        break;
+      case 'dawn':
+        layer = buildDawn(context, master);
+        break;
+      case 'summer':
+        layer = buildSummer(context, master);
+        break;
+      case 'pool':
+        layer = buildPool(context, master);
+        break;
+      case 'wheat':
+        layer = buildWheat(context, master);
+        break;
+      default:
+        layer = buildRain(context, master);
     }
   }
 
