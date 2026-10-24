@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import BrandMark from '#/components/BrandMark.vue';
 import IconifyIcon from '#/components/IconifyIcon.vue';
 import {
   locked,
@@ -22,7 +23,7 @@ function switchAccount() {
     <main class="auth-card login-card">
       <div class="login-brand">
         <span class="login-brand-mark">
-          <IconifyIcon icon="lucide:leaf" />
+          <BrandMark />
         </span>
         <span>清砚自习室</span>
       </div>
@@ -120,9 +121,8 @@ function switchAccount() {
   height: 32px;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  color: #051612;
-  background: var(--study-room-primary, #d7ef83);
+  overflow: hidden;
+  border-radius: 10px;
   box-shadow: 0 0 24px rgb(215 239 131 / 0.28);
 }
 
