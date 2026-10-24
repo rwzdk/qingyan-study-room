@@ -13,8 +13,17 @@
 - **学习计划**：把长期目标拆成任务，记录完成状态和整体进度。
 - **阅读笔记**：新建、编辑和保存文档，集中管理学习记录。
 - **主页统计**：加入天数、连续活跃、打卡总数、年度进度和最近 7 天专注轨迹。
-- **场景切换**：雨林、雪日、暖云三套背景与主色。
+- **场景切换**：雨林、雪日、暖云、星夜、海岸、晨光六套背景与主色。
 - **数据备份**：数据默认保存在浏览器 localStorage，主页支持导出 / 导入 JSON。
+
+## 背景
+
+六套可切换背景：雨林、雪日、暖云、星夜、海岸、晨光。点击顶部场景按钮打开背景选择器，选择会保存在本机。
+
+<p align="center">
+  <img src="docs/screenshots/scenes.jpg" width="70%" alt="背景选择器" />
+  <img src="docs/screenshots/scenes-mobile.jpg" width="24%" alt="移动端背景选择" />
+</p>
 
 ## 界面预览
 
@@ -51,9 +60,17 @@ node dev/function-local.mjs
 
 # 终端 2：前端开发服务器
 pnpm dev
+
+# 或者只跑纯前端静态模式（数据保存在 localStorage）
+pnpm dev:static
 ```
 
-Vite 已把 `/functions/v1/app` 代理到 `http://127.0.0.1:8000`。如果只想查看纯前端页面，也可以直接构建并预览 `dist/`。
+Vite 已把 `/functions/v1/app` 代理到 `http://127.0.0.1:8000`。静态模式不需要后端，可直接构建：
+
+```bash
+pnpm build:static
+pnpm preview
+```
 
 ## 项目结构
 
@@ -75,6 +92,7 @@ docs/screenshots/    界面截图
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm build:static
 ```
 
 ## License

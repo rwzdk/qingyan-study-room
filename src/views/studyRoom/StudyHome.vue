@@ -12,6 +12,7 @@ import {
   saveLocalUser,
   useLocalUser,
 } from '#/lib/local-user';
+import { STATIC_MODE } from '#/lib/app-mode';
 import { account } from '#/session/session-state';
 import {
   retrySync,
@@ -325,8 +326,10 @@ const hasAnyData = computed(
         <div class="profile-info">
           <p class="profile-eyebrow">Personal space</p>
           <h2>{{ userNickname }}</h2>
-          <p class="profile-email">已登录 · 数据自动同步</p>
-          <p class="profile-sync" :class="`is-${syncStatus}`">
+          <p class="profile-email">
+            {{ STATIC_MODE ? '本地模式 · 数据只保存在当前浏览器' : '已登录 · 数据自动同步' }}
+          </p>
+          <p v-if="!STATIC_MODE" class="profile-sync" :class="`is-${syncStatus}`">
             <IconifyIcon
               :icon="syncIcon"
               :class="{ 'is-spinning': syncStatus === 'saving' }"

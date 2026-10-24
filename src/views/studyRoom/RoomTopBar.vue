@@ -5,6 +5,7 @@ import { ElMessageBox } from 'element-plus';
 
 import defaultAvatar from '#/assets/defaultUserAvatar.png';
 import IconifyIcon from '#/components/IconifyIcon.vue';
+import { STATIC_MODE } from '#/lib/app-mode';
 import { useLocalUser } from '#/lib/local-user';
 import { logoutLocal } from '#/session/session-gate';
 import { account } from '#/session/session-state';
@@ -14,7 +15,7 @@ import type { StudyRoomScene } from './study-room-scene';
 import { STUDY_ROOM_SCENES } from './study-room-scene';
 import { retrySync, useStudyRoomState, type SyncStatus } from './study-room-state-store';
 
-defineProps<{
+const props = defineProps<{
   scene: StudyRoomScene;
   activeTab: string;
   tabItems: { key: string; icon: string; label: string }[];
@@ -29,6 +30,7 @@ const { profile } = useLocalUser();
 const { syncStatus, error: syncError } = useStudyRoomState();
 
 const menuOpen = ref(false);
+const sceneMenuOpen = ref(false);
 const retrying = ref(false);
 
 /** 头像优先级：自选头像 → Qoder 头像 → 内置默认头像。 */
@@ -80,13 +82,29 @@ const syncDetail = computed(() => {
 const sceneOptions = Object.entries(STUDY_ROOM_SCENES).map(
   ([value, copy]) => ({ value: value as StudyRoomScene, copy }),
 );
+const currentSceneCopy = computed(() => STUDY_ROOM_SCENES[props.scene]);
 
 function closeMenu() {
   menuOpen.value = false;
 }
 
 function toggleMenu() {
+  sceneMenuOpen.value = false;
   menuOpen.value = !menuOpen.value;
+}
+
+function closeSceneMenu() {
+  sceneMenuOpen.value = false;
+}
+
+function toggleSceneMenu() {
+  menuOpen.value = false;
+  sceneMenuOpen.value = !sceneMenuOpen.value;
+}
+
+function selectScene(value: StudyRoomScene) {
+  emit('switch-scene', value);
+  closeSceneMenu();
 }
 
 function openProfile() {
@@ -95,9 +113,11 @@ function openProfile() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && menuOpen.value) {
+  if (event.key !== 'Escape') return;
+  if (menuOpen.value || sceneMenuOpen.value) {
     event.preventDefault();
     closeMenu();
+    closeSceneMenu();
   }
 }
 
@@ -152,15 +172,20 @@ onBeforeUnmount(() => {
       </div>
 
       <button
-        v-for="option in sceneOptions"
-        :key="`scene-${option.value}`"
         type="button"
-        class="nav-item"
-        :class="{ active: scene === option.value }"
-        :title="`切换到${option.copy.labelLong}`"
-        @click="emit('switch-scene', option.value)"
+        class="nav-item scene-trigger"
+        :class="{ active: sceneMenuOpen }"
+        aria-haspopup="dialog"
+        :aria-expanded="sceneMenuOpen"
+        title="选择自习背景"
+        @click="toggleSceneMenu"
       >
-        {{ option.copy.labelShort }}
+        <span
+          class="scene-trigger-dot"
+          :style="{ background: currentSceneCopy.primary }"
+        />
+        {{ currentSceneCopy.labelShort }}
+        <IconifyIcon icon="lucide:chevron-down" class="scene-trigger-chevron" />
       </button>
 
       <span class="nav-divider" aria-hidden="true" />
@@ -177,9 +202,69 @@ onBeforeUnmount(() => {
       </button>
     </nav>
 
+    <div
+      v-if="sceneMenuOpen"
+      class="scene-menu-backdrop"
+      aria-hidden="true"
+      @click="closeSceneMenu"
+    />
+    <section
+      v-if="sceneMenuOpen"
+      class="scene-menu"
+      role="dialog"
+      aria-label="选择自习背景"
+    >
+      <header class="scene-menu-head">
+        <div>
+          <p class="scene-menu-eyebrow">ATMOSPHERE</p>
+          <h2>选择背景</h2>
+          <p>换一处风景，换一种进入专注的方式。</p>
+        </div>
+        <button
+          type="button"
+          class="scene-menu-close"
+          aria-label="关闭背景选择"
+          @click="closeSceneMenu"
+        >
+          <IconifyIcon icon="lucide:x" />
+        </button>
+      </header>
+
+      <div class="scene-grid">
+        <button
+          v-for="option in sceneOptions"
+          :key="`scene-${option.value}`"
+          type="button"
+          class="scene-card"
+          :class="{ active: scene === option.value }"
+          :aria-pressed="scene === option.value"
+          @click="selectScene(option.value)"
+        >
+          <span
+            class="scene-card-image"
+            :style="{
+              backgroundImage: `url('/images/study-room/${option.value}.webp')`,
+            }"
+          />
+          <span class="scene-card-shade" />
+          <span class="scene-card-copy">
+            <strong>{{ option.copy.labelLong }}</strong>
+            <small>{{ option.copy.roomSlogan }}</small>
+          </span>
+          <span
+            v-if="scene === option.value"
+            class="scene-card-check"
+            aria-hidden="true"
+          >
+            <IconifyIcon icon="lucide:check" />
+          </span>
+        </button>
+      </div>
+    </section>
+
     <div class="top-bar-side top-bar-right">
       <AmbientSound :scene="scene" />
-      <div class="user-menu-wrap">
+      <div v-if="!STATIC_MODE" class="user-menu-wrap">
         <button
           type="button"
           class="user-avatar-btn"
@@ -266,6 +351,21 @@ onBeforeUnmount(() => {
           </p>
         </div>
       </div>
+      <button
+        v-else
+        type="button"
+        class="user-avatar-btn"
+        :aria-label="`${nickname}的本地资料`"
+        :title="`${nickname} · 回到主页编辑资料`"
+        @click="emit('switch-tab', 'home')"
+      >
+        <img
+          :src="avatar"
+          alt="头像"
+          class="user-avatar-img"
+          referrerpolicy="no-referrer"
+        />
+      </button>
     </div>
   </div>
 </template>
@@ -612,6 +712,205 @@ onBeforeUnmount(() => {
   background: rgb(255 255 255 / 0.12);
 }
 
+.scene-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scene-trigger-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.16);
+}
+
+.scene-trigger-chevron {
+  width: 14px;
+  transition: transform 0.18s ease;
+}
+
+.scene-trigger.active .scene-trigger-chevron {
+  transform: rotate(180deg);
+}
+
+.scene-menu-backdrop {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  background: rgb(0 0 0 / 0.18);
+}
+
+.scene-menu {
+  position: absolute;
+  z-index: 70;
+  top: calc(100% + 10px);
+  left: 50%;
+  width: min(760px, calc(100vw - 48px));
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 22px;
+  background: rgb(9 17 14 / 0.94);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.48);
+  color: #fff;
+  backdrop-filter: blur(24px);
+  transform: translateX(-50%);
+}
+
+.scene-menu-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 2px 14px;
+}
+
+.scene-menu-eyebrow {
+  margin: 0 0 5px;
+  color: var(--study-room-primary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.scene-menu-head h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.scene-menu-head p:last-child {
+  margin: 5px 0 0;
+  color: rgb(255 255 255 / 0.52);
+  font-size: 12px;
+}
+
+.scene-menu-close {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 50%;
+  color: rgb(255 255 255 / 0.7);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.scene-menu-close:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.1);
+}
+
+.scene-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scene-card {
+  position: relative;
+  height: 138px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 14px;
+  color: #fff;
+  background: #0b1511;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.scene-card:hover {
+  border-color: rgb(255 255 255 / 0.38);
+  transform: translateY(-2px);
+}
+
+.scene-card.active {
+  border-color: var(--study-room-primary);
+  box-shadow:
+    0 0 0 1px var(--study-room-primary),
+    0 12px 30px rgb(0 0 0 / 0.35);
+}
+
+.scene-card-image,
+.scene-card-shade {
+  position: absolute;
+  inset: 0;
+}
+
+.scene-card-image {
+  background-position: center;
+  background-size: cover;
+  filter: brightness(0.82) saturate(0.92);
+  transform: scale(1.02);
+  transition: transform 0.3s ease;
+}
+
+.scene-card:hover .scene-card-image {
+  transform: scale(1.07);
+}
+
+.scene-card-shade {
+  background: linear-gradient(
+    180deg,
+    rgb(0 0 0 / 0.04) 10%,
+    rgb(0 0 0 / 0.78) 100%
+  );
+}
+
+.scene-card-copy {
+  position: absolute;
+  right: 12px;
+  bottom: 11px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scene-card-copy strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.scene-card-copy small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgb(255 255 255 / 0.68);
+  font-size: 10px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.scene-card-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: #051612;
+  background: var(--study-room-primary);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.28);
+}
+
+.scene-card-check :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
 @media (max-width: 1100px) {
   .room-top-bar {
     grid-template-columns: auto 1fr auto;
@@ -660,6 +959,35 @@ onBeforeUnmount(() => {
     width: min(264px, calc(100vw - 24px));
     max-height: calc(100dvh - 80px);
     overflow-y: auto;
+  }
+
+  .scene-menu {
+    position: fixed;
+    top: 108px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - 128px);
+    padding: 14px;
+    border-radius: 18px;
+    transform: none;
+  }
+
+  .scene-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .scene-card {
+    height: 112px;
+  }
+
+  .scene-menu-head h2 {
+    font-size: 19px;
+  }
+
+  .scene-menu-head p:last-child {
+    font-size: 11px;
   }
 }
 </style>

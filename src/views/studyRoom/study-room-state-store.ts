@@ -10,8 +10,10 @@ import {
   SyncApiError,
   type CloudSnapshot,
 } from '#/api/study-room-sync';
+import { STATIC_MODE } from '#/lib/app-mode';
 import {
   isValidJoinedAt,
+  profile,
   profilePayload,
   sanitizeAvatar,
   sanitizeNickname,
@@ -182,6 +184,31 @@ function writeCache(pendingFlag: boolean, baseUpdatedAt: string | null): void {
   writeJson(CACHE_KEY, cache);
 }
 
+function writeStaticSnapshot(): void {
+  writeJson(
+    LEGACY_STATE_KEY,
+    normalizeStudyRoomState(state.value) ?? emptyStudyRoomState(),
+  );
+  writeJson(LEGACY_PROFILE_KEY, {
+    nickname: profile.nickname,
+    avatar: profile.avatar,
+    joinedAt: isValidJoinedAt(profile.joinedAt) ? profile.joinedAt : todayKey(),
+  });
+}
+
+if (STATIC_MODE) {
+  state.value =
+    normalizeStudyRoomState(readJson<unknown>(LEGACY_STATE_KEY, null)) ??
+    emptyStudyRoomState();
+  userId.value = 'local';
+  loaded.value = true;
+  syncStatus.value = 'synced';
+  const cachedProfile = parseCachedProfile(
+    readJson<unknown>(LEGACY_PROFILE_KEY, null),
+  );
+  if (cachedProfile) setProfile(cachedProfile);
+}
+
 function markSyncError(message: string, outcomeUnknown: boolean): void {
   error.value = message;
   syncStatus.value = 'error';
@@ -264,6 +291,16 @@ export function scheduleSaveStudyRoom(): void {
   unknownOutcome = false;
   error.value = '';
   if (syncStatus.value !== 'conflict') syncStatus.value = 'saving';
+  if (STATIC_MODE) {
+    writeStaticSnapshot();
+    clearSaveTimer();
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      pending = false;
+      syncStatus.value = 'synced';
+    }, 200);
+    return;
+  }
   writeCache(true, updatedAt.value);
   if (conflict.value) return;
   clearSaveTimer();
@@ -369,6 +406,12 @@ async function sendSnapshot(): Promise<boolean> {
 }
 
 export async function pushStudyRoom(): Promise<void> {
+  if (STATIC_MODE) {
+    writeStaticSnapshot();
+    pending = false;
+    syncStatus.value = 'synced';
+    return;
+  }
   if (!userId.value || !loaded.value) return;
   if (conflict.value) return;
   if (!pending && !queued) return;
@@ -401,10 +444,22 @@ export async function pushStudyRoom(): Promise<void> {
 
 export async function flushStudyRoom(): Promise<void> {
   clearSaveTimer();
+  if (STATIC_MODE) {
+    writeStaticSnapshot();
+    pending = false;
+    syncStatus.value = 'synced';
+    return;
+  }
   await pushStudyRoom();
 }
 
 export async function pushInitialState(): Promise<boolean> {
+  if (STATIC_MODE) {
+    writeStaticSnapshot();
+    pending = false;
+    syncStatus.value = 'synced';
+    return true;
+  }
   if (!userId.value) return false;
   if (inFlight) await inFlight;
   if (!userId.value) return false;
@@ -424,6 +479,12 @@ export async function pushInitialState(): Promise<boolean> {
 }
 
 export async function retrySync(): Promise<void> {
+  if (STATIC_MODE) {
+    writeStaticSnapshot();
+    pending = false;
+    syncStatus.value = 'synced';
+    return;
+  }
   if (!userId.value || !loaded.value || conflict.value) return;
 
   if (!unknownOutcome) {

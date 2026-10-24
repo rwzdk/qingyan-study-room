@@ -4,6 +4,7 @@ import { computed } from 'vue';
 import IconifyIcon from '#/components/IconifyIcon.vue';
 
 import LearningIsland from './LearningIsland.vue';
+import { getStudyRoomSceneCopy, type StudyRoomScene } from './study-room-scene';
 import {
   calcStreak,
   daysOfYear,
@@ -12,7 +13,7 @@ import {
 import { useStudyRoomState, scheduleSaveStudyRoom } from './study-room-state-store';
 
 const props = withDefaults(
-  defineProps<{ scene?: 'rain' | 'snow' | 'cloud' }>(),
+  defineProps<{ scene?: StudyRoomScene }>(),
   { scene: 'rain' },
 );
 
@@ -26,12 +27,10 @@ const todayCheckins = computed(
   () => checkins.value.filter((item) => item.date === todayKey()).length,
 );
 
-// 按钮文案跟随场景（对齐原项目「来访雨林/来访雪日/来访暖云」）
-const sceneLabel = computed(() => {
-  if (props.scene === 'snow') return '雪日';
-  if (props.scene === 'cloud') return '暖云';
-  return '雨林';
-});
+const sceneCopy = computed(() => getStudyRoomSceneCopy(props.scene));
+
+// 3D 小岛沿用三套基础配色，新场景映射到最接近的一套。
+const islandScene = computed(() => sceneCopy.value.islandScene);
 
 /** 已打卡日期集合（YYYY-MM-DD）。 */
 const checkedSet = computed(() => new Set(checkins.value.map((item) => item.date)));
@@ -198,7 +197,7 @@ function cellTitle(cell: HeatCell): string {
         <LearningIsland
           :total-checkins="totalCheckins"
           :today-checkins="todayCheckins"
-          :scene="props.scene || 'rain'"
+          :scene="islandScene"
         />
       </div>
 
@@ -220,7 +219,7 @@ function cellTitle(cell: HeatCell): string {
 
         <button v-if="!checkedToday" type="button" class="sr-btn" @click="checkIn">
           <IconifyIcon icon="lucide:map-pin" />
-          来访{{ sceneLabel }}
+          来访{{ sceneCopy.labelShort }}
         </button>
         <div v-else class="sr-checkin-done" role="status">
           <IconifyIcon icon="lucide:circle-check" />

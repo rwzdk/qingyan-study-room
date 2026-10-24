@@ -1,9 +1,16 @@
 <script lang="ts" setup>
-import SessionGate from '#/views/auth/SessionGate.vue';
+import { defineAsyncComponent } from 'vue';
+
+import { STATIC_MODE } from '#/lib/app-mode';
+
+const SessionGate = STATIC_MODE
+  ? null
+  : defineAsyncComponent(() => import('#/views/auth/SessionGate.vue'));
 </script>
 
 <template>
-  <SessionGate>
+  <component :is="SessionGate" v-if="SessionGate">
     <router-view />
-  </SessionGate>
+  </component>
+  <router-view v-else />
 </template>

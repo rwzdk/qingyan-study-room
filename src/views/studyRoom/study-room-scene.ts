@@ -1,10 +1,18 @@
 /**
  * 自习室场景元数据：纯类型 + 纯数据 + 纯函数，无副作用。
- * 复刻 summer-checkin 的场景语义（雨林 / 雪日 / 暖云），
- * 文案与主色沿用其 SCENE_COPY / SCENE_THEMES 思路。
+ * 每个场景包含背景图键、主色、文案、3D 小岛配色和白噪音预设。
  */
 
-export type StudyRoomScene = 'rain' | 'snow' | 'cloud';
+export type StudyRoomScene =
+  | 'rain'
+  | 'snow'
+  | 'cloud'
+  | 'starry'
+  | 'coast'
+  | 'dawn';
+
+export type SceneAmbientPreset = 'rain' | 'snow' | 'cloud';
+export type SceneIslandPalette = 'rain' | 'snow' | 'cloud';
 
 export interface StudyRoomSceneCopy {
   labelShort: string;
@@ -13,6 +21,10 @@ export interface StudyRoomSceneCopy {
   roomSlogan: string;
   primary: string;
   quotes: string[];
+  /** 3D 小岛使用的基础配色。 */
+  islandScene: SceneIslandPalette;
+  /** 白噪音合成预设；cloud 为静音。 */
+  ambientPreset: SceneAmbientPreset;
 }
 
 export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
@@ -27,6 +39,8 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '雨落进书页的缝隙，时间便有了声音。',
       '每一滴雨，都在为坚持的你鼓掌。',
     ],
+    islandScene: 'rain',
+    ambientPreset: 'rain',
   },
   snow: {
     labelShort: '雪日',
@@ -39,6 +53,8 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '雪花从不会急着落对地方，你也不必慌张。',
       '最安静的雪天，最适合听自己成长的声音。',
     ],
+    islandScene: 'snow',
+    ambientPreset: 'snow',
   },
   cloud: {
     labelShort: '暖云',
@@ -51,6 +67,50 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '把心挂在云上，再沉的事也会变轻。',
       '云知道所有答案，你只需慢慢向前。',
     ],
+    islandScene: 'cloud',
+    ambientPreset: 'cloud',
+  },
+  starry: {
+    labelShort: '星夜',
+    labelLong: '星夜',
+    roomTitle: '星夜自习室',
+    roomSlogan: '在星河下静心，让每一段专注都有光。',
+    primary: '#b9c6ff',
+    quotes: [
+      '星星不会催你，它只是一直亮着。',
+      '把今天写进夜里，明天会记得。',
+      '在星河下，慢慢来也是一种前进。',
+    ],
+    islandScene: 'snow',
+    ambientPreset: 'snow',
+  },
+  coast: {
+    labelShort: '海岸',
+    labelLong: '海岸',
+    roomTitle: '海岸自习室',
+    roomSlogan: '听潮起潮落，把注意力交给眼前这一页。',
+    primary: '#8fe3d2',
+    quotes: [
+      '潮水有它的节奏，你也有你的。',
+      '把烦恼交给海浪，把专注留给书页。',
+      '海风吹过的地方，心也会变得开阔。',
+    ],
+    islandScene: 'rain',
+    ambientPreset: 'cloud',
+  },
+  dawn: {
+    labelShort: '晨光',
+    labelLong: '晨光',
+    roomTitle: '晨光自习室',
+    roomSlogan: '在第一束晨光里，慢慢进入状态。',
+    primary: '#ffd39b',
+    quotes: [
+      '晨光不急，它知道你会来。',
+      '新的一天，从一个安静的早晨开始。',
+      '把第一束光，留给最重要的事。',
+    ],
+    islandScene: 'cloud',
+    ambientPreset: 'cloud',
   },
 };
 
@@ -59,8 +119,9 @@ export const STUDY_ROOM_DEFAULT_SCENE: StudyRoomScene = 'rain';
 export const STUDY_ROOM_SCENE_STORAGE_KEY = 'qingyan-study-room:scene:v1';
 
 export function asStudyRoomScene(value: unknown): StudyRoomScene {
-  return value === 'rain' || value === 'snow' || value === 'cloud'
-    ? value
+  return typeof value === 'string' &&
+    Object.prototype.hasOwnProperty.call(STUDY_ROOM_SCENES, value)
+    ? (value as StudyRoomScene)
     : STUDY_ROOM_DEFAULT_SCENE;
 }
 

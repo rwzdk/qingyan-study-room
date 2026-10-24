@@ -4,11 +4,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import IconifyIcon from '#/components/IconifyIcon.vue';
 
 import { createAmbientEngine, type AmbientEngine } from './ambient-audio';
-import type { StudyRoomScene } from './study-room-scene';
+import { getStudyRoomSceneCopy, type StudyRoomScene } from './study-room-scene';
 
 const props = defineProps<{
   scene: StudyRoomScene;
 }>();
+
+const ambientPreset = computed(
+  () => getStudyRoomSceneCopy(props.scene).ambientPreset,
+);
 
 const volume = ref(0.3);
 const open = ref(false);
@@ -26,7 +30,7 @@ watch(volume, (v) => {
 });
 
 onMounted(() => {
-  engine = createAmbientEngine(props.scene, volumeRef.value);
+  engine = createAmbientEngine(ambientPreset.value, volumeRef.value);
 
   // 浏览器自动播放策略：必须先有用户手势才能起 AudioContext。
   // 首屏静默等待首次点击/按键，之后环境音自然接入。
@@ -53,7 +57,7 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => props.scene,
+  ambientPreset,
   (next) => {
     void engine?.setPreset(next);
   },
