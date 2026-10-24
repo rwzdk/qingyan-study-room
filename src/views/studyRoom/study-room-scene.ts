@@ -9,7 +9,10 @@ export type StudyRoomScene =
   | 'cloud'
   | 'starry'
   | 'coast'
-  | 'dawn';
+  | 'dawn'
+  | 'summer'
+  | 'pool'
+  | 'wheat';
 
 export type SceneAmbientPreset = 'rain' | 'snow' | 'cloud';
 export type SceneIslandPalette = 'rain' | 'snow' | 'cloud';
@@ -108,6 +111,48 @@ export const STUDY_ROOM_SCENES: Record<StudyRoomScene, StudyRoomSceneCopy> = {
       '晨光不急，它知道你会来。',
       '新的一天，从一个安静的早晨开始。',
       '把第一束光，留给最重要的事。',
+    ],
+    islandScene: 'cloud',
+    ambientPreset: 'cloud',
+  },
+  summer: {
+    labelShort: '夏日',
+    labelLong: '夏日',
+    roomTitle: '夏日自习室',
+    roomSlogan: '在蝉鸣与光影里，把夏天写进书页。',
+    primary: '#ffe08a',
+    quotes: [
+      '蝉鸣把夏天拉长，书页把时间留住。',
+      '阳光落在桌上，正好照亮下一行。',
+      '夏天适合慢一点，也适合再坚持一会儿。',
+    ],
+    islandScene: 'rain',
+    ambientPreset: 'cloud',
+  },
+  pool: {
+    labelShort: '池边',
+    labelLong: '池边',
+    roomTitle: '池边自习室',
+    roomSlogan: '水光摇晃，心也跟着安静下来。',
+    primary: '#7fe7e0',
+    quotes: [
+      '水面有波纹，心可以很平。',
+      '让波浪负责流动，你负责专注。',
+      '池边的风，会把杂念吹远。',
+    ],
+    islandScene: 'rain',
+    ambientPreset: 'cloud',
+  },
+  wheat: {
+    labelShort: '麦田',
+    labelLong: '麦田',
+    roomTitle: '麦田自习室',
+    roomSlogan: '风吹麦浪，专注在金色里生长。',
+    primary: '#f2c66d',
+    quotes: [
+      '风吹麦浪，时间在金色里变慢。',
+      '每一页书，都在为秋天积蓄。',
+      '在麦田边，把今天认真收好。',
     ],
     islandScene: 'cloud',
     ambientPreset: 'cloud',

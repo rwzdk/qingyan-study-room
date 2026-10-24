@@ -243,7 +243,7 @@ onBeforeUnmount(() => {
           <span
             class="scene-card-image"
             :style="{
-              backgroundImage: `url('/images/study-room/${option.value}.webp')`,
+              backgroundImage: `url('/images/study-room/thumbs/${option.value}.webp')`,
             }"
           />
           <span class="scene-card-shade" />

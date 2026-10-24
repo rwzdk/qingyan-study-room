@@ -32,8 +32,18 @@ describe('study room date helpers', () => {
     expect(asStudyRoomScene('snow')).toBe('snow');
   });
 
-  it('supports all six scene backgrounds', () => {
-    for (const scene of ['rain', 'snow', 'cloud', 'starry', 'coast', 'dawn']) {
+  it('supports all nine scene backgrounds', () => {
+    for (const scene of [
+      'rain',
+      'snow',
+      'cloud',
+      'starry',
+      'coast',
+      'dawn',
+      'summer',
+      'pool',
+      'wheat',
+    ]) {
       expect(asStudyRoomScene(scene)).toBe(scene);
     }
   });
