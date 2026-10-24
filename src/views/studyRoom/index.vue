@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import FocusRoom from './FocusRoom.vue';
 import IslandCheckin from './IslandCheckin.vue';
 import RoomTopBar from './RoomTopBar.vue';
+import SceneAtmosphere from './SceneAtmosphere.vue';
 import StudyDocs from './StudyDocs.vue';
 import StudyHome from './StudyHome.vue';
 import StudyPlans from './StudyPlans.vue';
@@ -52,7 +53,6 @@ function persistScene(scene: StudyRoomScene) {
 
 const scene = ref<StudyRoomScene>(readScene());
 const sceneCopy = computed(() => getStudyRoomSceneCopy(scene.value));
-const sceneBg = computed(() => `url('/images/study-room/${scene.value}.webp')`);
 
 function getTab(value: unknown): RoomTab {
   const tabs: RoomTab[] = ['focus', 'island', 'plans', 'docs', 'home'];
@@ -108,9 +108,9 @@ onBeforeUnmount(() => {
     :style="{
       '--study-room-primary': sceneCopy.primary,
       '--study-room-secondary': sceneCopy.secondary,
-      backgroundImage: sceneBg,
     }"
   >
+    <SceneAtmosphere :scene="scene" />
     <RoomTopBar
       :scene="scene"
       :active-tab="currentTab"
@@ -157,65 +157,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
   color: var(--qc-ink);
   background-color: #1b2019;
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
 }
 
-.study-room-page::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    color-mix(
-        in srgb,
-        var(--study-room-secondary, #5ab8b0) 22%,
-        rgb(0 0 0 / 0.6)
-      )
-      0%,
-    rgb(0 0 0 / 0.34) 42%,
-    color-mix(
-        in srgb,
-        var(--study-room-primary, #d7ef83) 16%,
-        rgb(0 0 0 / 0.65)
-      )
-      100%
-  );
-}
-
-/* 场景辅助色形成的柔和光晕，让页面氛围随背景一起变化。 */
-.study-room-page::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(
-      circle at 16% 10%,
-      color-mix(
-        in srgb,
-        var(--study-room-primary, #d7ef83) 14%,
-        transparent
-      ),
-      transparent 42%
-    ),
-    radial-gradient(
-      circle at 84% 84%,
-      color-mix(
-        in srgb,
-        var(--study-room-secondary, #5ab8b0) 16%,
-        transparent
-      ),
-      transparent 52%
-    );
-  opacity: 0.85;
-}
-
-.study-room-page > * {
+.study-room-page > :not(.scene-atmosphere) {
   position: relative;
   z-index: 1;
+}
+
+.study-room-page > .scene-atmosphere {
+  position: absolute;
+  z-index: 0;
 }
 
 .study-room-page > .room-top-bar {
