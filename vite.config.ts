@@ -16,6 +16,8 @@ export default defineConfig({
     proxy: {
       // 本地 Function fixture（dev/function-local.mjs）监听 8000。
       '/functions/v1/app': 'http://127.0.0.1:8000',
+      // 本地 Cloudflare Worker（pnpm chat:dev）监听 8787。
+      '/api/chat': 'http://127.0.0.1:8787',
     },
   },
 });

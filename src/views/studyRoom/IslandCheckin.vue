@@ -362,6 +362,19 @@ function cellTitle(cell: HeatCell): string {
   position: relative;
   flex: 1;
   min-height: 220px;
+  overflow: hidden;
+}
+
+/*
+ * 3D 容器必须脱离文档流。
+ * 否则 canvas 会按自身缓冲区的 2:1 宽高比反向撑高父级，
+ * 宽屏下把年度热力图挤出首屏（1440×900 时内容高达 1051px）。
+ */
+.island-scene :deep(.learning-island) {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  min-height: 0;
 }
 
 /*

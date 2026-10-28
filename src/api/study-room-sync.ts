@@ -100,6 +100,10 @@ function isTimestamp(value: unknown): value is string {
   );
 }
 
+function isDateKey(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 /** 比较两个服务端时间戳，容忍同一时刻的不同 ISO 表示。 */
 export function isSameUpdatedAt(
   left: string | null,
@@ -226,6 +230,8 @@ export function normalizeStudyRoomState(raw: unknown): StudyRoomState | null {
       id: todo.id,
       title: todo.title,
       completed: todo.completed,
+      ...(isDateKey(todo.date) ? { date: todo.date } : {}),
+      ...(isDateKey(todo.completedOn) ? { completedOn: todo.completedOn } : {}),
     })),
     focus_sessions: listOf(raw.focus_sessions, isFocusSession).map((session) => ({
       minutes: session.minutes,

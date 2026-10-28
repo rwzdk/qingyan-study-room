@@ -14,6 +14,12 @@ const STATE_LIMITS = {
   todos: 2000,
   focus_sessions: 20000,
 };
+const CHAT_DEFAULT_LIMIT = 100;
+const CHAT_MAX_LIMIT = 200;
+const CHAT_MAX_CONTENT_CHARS = 500;
+const CHAT_MAX_CONTENT_BYTES = 4000;
+const CHAT_MAX_AUTHOR_NAME_BYTES = 64;
+const CHAT_AUTHOR_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const encoder = new TextEncoder();
 
 const json = (value, status = 200, extra = {}) =>
@@ -116,7 +122,14 @@ function validTodo(value) {
   ) {
     return null;
   }
-  return { id: value.id, title: value.title, completed: value.completed };
+  const todo = { id: value.id, title: value.title, completed: value.completed };
+  if (typeof value.date === 'string' && ISO_DATE.test(value.date)) {
+    todo.date = value.date;
+  }
+  if (typeof value.completedOn === 'string' && ISO_DATE.test(value.completedOn)) {
+    todo.completedOn = value.completedOn;
+  }
+  return todo;
 }
 
 function validFocusSession(value) {
@@ -243,6 +256,150 @@ async function readJsonBody(request) {
   }
 }
 
+function chatLimit(value) {
+  if (value === null) return CHAT_DEFAULT_LIMIT;
+  if (!/^\d+$/.test(value)) return null;
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > CHAT_MAX_LIMIT) {
+    return null;
+  }
+  return limit;
+}
+
+function validChatAuthorId(value) {
+  if (typeof value !== 'string') return null;
+  const id = value.trim();
+  return CHAT_AUTHOR_ID.test(id) ? id : null;
+}
+
+function validChatAuthorName(value) {
+  if (typeof value !== 'string') return null;
+  const name = value.trim();
+  if (
+    !name ||
+    encoder.encode(name).length > CHAT_MAX_AUTHOR_NAME_BYTES ||
+    /[\u0000-\u001f\u007f]/.test(name)
+  ) {
+    return null;
+  }
+  return name;
+}
+
+function validChatContent(value) {
+  if (typeof value !== 'string') return null;
+  const content = value.replace(/\r\n?/g, '\n').trim();
+  if (
+    !content ||
+    content.length > CHAT_MAX_CONTENT_CHARS ||
+    encoder.encode(content).length > CHAT_MAX_CONTENT_BYTES ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(content)
+  ) {
+    return null;
+  }
+  return content;
+}
+
+function chatMessageOf(row) {
+  if (
+    !isRecord(row) ||
+    typeof row.id !== 'string' ||
+    typeof row.author_id !== 'string' ||
+    typeof row.author_name !== 'string' ||
+    typeof row.content !== 'string' ||
+    typeof row.created_at !== 'string' ||
+    Number.isNaN(Date.parse(row.created_at))
+  ) {
+    return null;
+  }
+  return {
+    id: row.id,
+    authorId: row.author_id,
+    authorName: row.author_name,
+    content: row.content,
+    createdAt: row.created_at,
+  };
+}
+
+async function handleChat({ request, supabase }) {
+  try {
+    if (request.method === 'GET') {
+      const limit = chatLimit(new URL(request.url).searchParams.get('limit'));
+      if (limit === null) return json({ error: 'invalid_input' }, 400);
+
+      const result = await supabase
+        .from('chat_messages')
+        .select('id,author_id,author_name,content,created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (result.error) return json({ error: 'chat_unavailable' }, 503);
+
+      const rows = Array.isArray(result.data) ? result.data : [];
+      const messages = rows
+        .map(chatMessageOf)
+        .filter((message) => message !== null)
+        .reverse();
+      return json({ messages, now: new Date().toISOString() });
+    }
+
+    if (request.method === 'POST') {
+      const contentType = request.headers.get('content-type') ?? '';
+      if (
+        contentType.split(';')[0].trim().toLowerCase() !== 'application/json'
+      ) {
+        return json({ error: 'invalid_input' }, 415);
+      }
+
+      const body = await readJsonBody(request);
+      if (body.status !== 200) {
+        return json({ error: 'invalid_input' }, body.status);
+      }
+      if (!isRecord(body.value)) {
+        return json({ error: 'invalid_input' }, 400);
+      }
+
+      const authorId = validChatAuthorId(body.value.authorId);
+      const authorName = validChatAuthorName(body.value.authorName);
+      const content = validChatContent(body.value.content);
+      if (!authorId || !authorName || !content) {
+        return json({ error: 'invalid_input' }, 400);
+      }
+
+      const message = {
+        id: crypto.randomUUID(),
+        authorId,
+        authorName,
+        content,
+        createdAt: new Date().toISOString(),
+      };
+      const result = await supabase
+        .from('chat_messages')
+        .insert({
+          id: message.id,
+          author_id: message.authorId,
+          author_name: message.authorName,
+          content: message.content,
+          created_at: message.createdAt,
+        })
+        .select('id,author_id,author_name,content,created_at')
+        .single();
+      if (result.error || !result.data) {
+        return json({ error: 'chat_unavailable' }, 503);
+      }
+      const stored = chatMessageOf(result.data);
+      if (!stored) return json({ error: 'chat_unavailable' }, 503);
+      return json({ message: stored }, 201);
+    }
+
+    return json(
+      { error: 'method_not_allowed' },
+      405,
+      { allow: 'GET, POST' },
+    );
+  } catch {
+    return json({ error: 'chat_unavailable' }, 503);
+  }
+}
+
 function nextUpdatedAt(baseUpdatedAt) {
   const now = Date.now();
   if (baseUpdatedAt !== null) {
@@ -266,6 +423,9 @@ export async function handleStudyRoom({ request, supabase }) {
   let writePath = false;
   try {
     const action = new URL(request.url).searchParams.get('action');
+    if (action === 'chat') {
+      return await handleChat({ request, supabase });
+    }
     if (action !== 'bootstrap' && action !== 'state') {
       return json({ error: 'not_found' }, 404);
     }

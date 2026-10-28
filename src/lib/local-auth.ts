@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 
-import { readJson, writeJson } from './storage';
+import { canWriteLocalStorage, readJson, writeJson } from './storage';
 
 export interface LocalAccount {
   id: string;
@@ -20,6 +20,7 @@ interface LocalSession {
 const USERS_KEY = 'qingyan-study-room:users:v1';
 const SESSION_KEY = 'qingyan-study-room:session:v1';
 const POMODORO_KEY = 'qingyan-study-room:pomodoro:v1';
+const REMINDER_KEY = 'qingyan-study-room:focus-reminder:v1';
 export const LEGACY_MIGRATED_KEY = 'qingyan-study-room:legacy-migrated-to:v1';
 
 const PBKDF2_ITERATIONS = 120_000;
@@ -27,6 +28,12 @@ const USERNAME_MIN = 2;
 const USERNAME_MAX = 24;
 const PASSWORD_MIN = 6;
 const PASSWORD_MAX = 128;
+
+export const LOCAL_STORAGE_ERROR_MESSAGE =
+  '当前浏览器无法保存本地数据，换用普通浏览器窗口（不要用无痕模式或内嵌预览）打开后再试';
+const SESSION_ERROR_MESSAGE =
+  '账号数据已保存，但当前浏览器无法保存登录状态，请直接用该账号登录';
+
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -64,8 +71,12 @@ function readAccounts(): LocalAccount[] {
     .filter((user): user is LocalAccount => user !== null);
 }
 
-function writeAccounts(next: LocalAccount[]): void {
-  writeJson(USERS_KEY, next);
+function writeAccounts(next: LocalAccount[]): boolean {
+  if (!writeJson(USERS_KEY, next)) return false;
+  const restored = readJson<unknown>(USERS_KEY, null);
+  if (!Array.isArray(restored) || restored.length !== next.length) return false;
+  localAccounts.value = next;
+  return true;
 }
 
 function readSession(): LocalSession | null {
@@ -77,6 +88,16 @@ function readSession(): LocalSession | null {
     userId: raw.userId,
     loginAt: typeof raw.loginAt === 'string' ? raw.loginAt : '',
   };
+}
+
+function writeSession(userId: string): boolean {
+  if (
+    !writeJson(SESSION_KEY, { userId, loginAt: new Date().toISOString() })
+  ) {
+    return false;
+  }
+  const restored = readJson<unknown>(SESSION_KEY, null);
+  return isRecord(restored) && restored.userId === userId;
 }
 
 function removeSession(): void {
@@ -91,6 +112,14 @@ export const localAccounts = ref<LocalAccount[]>(readAccounts());
 export const hasLocalAccounts = computed(() => localAccounts.value.length > 0);
 export const currentUser = ref<LocalAccount | null>(null);
 export const localDisplayName = computed(() => currentUser.value?.username ?? '');
+
+/** 当前浏览器是否能把数据写入本地存储；为 false 时注册无法真正保存。 */
+export const canPersistLocalData = ref(canWriteLocalStorage());
+
+export function refreshLocalStorageSupport(): boolean {
+  canPersistLocalData.value = canWriteLocalStorage();
+  return canPersistLocalData.value;
+}
 
 const initialSession = readSession();
 if (initialSession) {
@@ -192,19 +221,14 @@ function validatePassword(value: string): string {
   return value;
 }
 
-function persistUsers(next: LocalAccount[]): void {
-  localAccounts.value = next;
-  writeAccounts(next);
-}
-
 function setCurrentUser(user: LocalAccount): void {
+  if (!writeSession(user.id)) {
+    throw new Error(SESSION_ERROR_MESSAGE);
+  }
   currentUser.value = user;
-  writeJson(SESSION_KEY, {
-    userId: user.id,
-    loginAt: new Date().toISOString(),
-  });
   try {
     window.localStorage.removeItem(POMODORO_KEY);
+    window.localStorage.removeItem(REMINDER_KEY);
   } catch {
     // 忽略本地存储不可用。
   }
@@ -232,7 +256,9 @@ export async function registerLocalUser(
     createdAt: now,
     lastLoginAt: now,
   };
-  persistUsers([...localAccounts.value, user]);
+  if (!writeAccounts([...localAccounts.value, user])) {
+    throw new Error(LOCAL_STORAGE_ERROR_MESSAGE);
+  }
   setCurrentUser(user);
   return user;
 }
@@ -252,11 +278,13 @@ export async function loginLocalUser(
     throw new Error('用户名或密码不正确');
   }
   const nextUser = { ...user, lastLoginAt: new Date().toISOString() };
-  persistUsers(
-    localAccounts.value.map((item) =>
-      item.id === user.id ? nextUser : item,
-    ),
+  const nextList = localAccounts.value.map((item) =>
+    item.id === user.id ? nextUser : item,
   );
+  if (!writeAccounts(nextList)) {
+    // 账号本体仍在本地存储中，只是这次登录时间没写进去，不阻断登录。
+    console.warn('[local-auth] 无法更新账号登录时间', LOCAL_STORAGE_ERROR_MESSAGE);
+  }
   setCurrentUser(nextUser);
   return nextUser;
 }
@@ -266,6 +294,7 @@ export function logoutLocalAccount(): void {
   removeSession();
   try {
     window.localStorage.removeItem(POMODORO_KEY);
+    window.localStorage.removeItem(REMINDER_KEY);
   } catch {
     // 忽略本地存储不可用。
   }

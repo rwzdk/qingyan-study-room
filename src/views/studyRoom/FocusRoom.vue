@@ -32,8 +32,8 @@ function exitImmersive() {
 
 <template>
   <div class="focus-room" :class="{ 'is-immersive': immersive }">
-    <!-- 常规视图：沉浸时整体淡出隐藏，避免与沉浸层重复 -->
-    <div v-show="!immersive" class="focus-room-normal">
+    <!-- 常规视图：沉浸时整体卸载，避免与沉浸层各跑一个计时器（会重复响铃、重复计数） -->
+    <div v-if="!immersive" class="focus-room-normal">
       <!-- 布局对齐原项目：标题左上、沉浸按钮右上；标题与按钮同一行且不设背景 -->
       <div class="focus-room-toolbar">
         <div class="focus-room-title">

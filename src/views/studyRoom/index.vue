@@ -12,6 +12,7 @@ import StudyPlans from './StudyPlans.vue';
 import TabErrorBoundary from './TabErrorBoundary.vue';
 import { flushStudyRoom } from './study-room-state-store';
 import './study-room-extension.css';
+import type { PixelIconName } from '#/lib/pixel-icons';
 import {
   STUDY_ROOM_DEFAULT_SCENE,
   STUDY_ROOM_SCENE_STORAGE_KEY,
@@ -25,12 +26,12 @@ const router = useRouter();
 
 type RoomTab = 'focus' | 'island' | 'plans' | 'docs' | 'home';
 
-const TAB_ITEMS: { key: RoomTab; icon: string; label: string }[] = [
-  { key: 'island', icon: 'lucide:mountain', label: '小岛' },
-  { key: 'focus', icon: 'lucide:timer', label: '专注室' },
-  { key: 'plans', icon: 'lucide:list-checks', label: '计划' },
-  { key: 'docs', icon: 'lucide:book-open', label: '阅读' },
-  { key: 'home', icon: 'lucide:chart-line-up', label: '主页' },
+const TAB_ITEMS: { key: RoomTab; icon: PixelIconName; label: string }[] = [
+  { key: 'island', icon: 'island', label: '小岛' },
+  { key: 'focus', icon: 'focus', label: '专注室' },
+  { key: 'plans', icon: 'plans', label: '计划' },
+  { key: 'docs', icon: 'docs', label: '阅读' },
+  { key: 'home', icon: 'home', label: '主页' },
 ];
 
 function readScene(): StudyRoomScene {

@@ -6,21 +6,28 @@ import { ElMessageBox } from 'element-plus';
 import defaultAvatar from '#/assets/defaultUserAvatar.png';
 import BrandMark from '#/components/BrandMark.vue';
 import IconifyIcon from '#/components/IconifyIcon.vue';
+import PixelIcon from '#/components/PixelIcon.vue';
 import { STATIC_MODE } from '#/lib/app-mode';
+import { displayAvatar, displayNickname } from '#/lib/display-identity';
 import { currentUser, logoutLocalAccount } from '#/lib/local-auth';
 import { useLocalUser } from '#/lib/local-user';
+import type { PixelIconName } from '#/lib/pixel-icons';
 import { logoutLocal } from '#/session/session-gate';
 import { account } from '#/session/session-state';
 
 import AmbientSound from './AmbientSound.vue';
+import ChatRoom from './ChatRoom.vue';
+import ReminderSettings from './ReminderSettings.vue';
 import type { StudyRoomScene } from './study-room-scene';
 import { STUDY_ROOM_SCENES } from './study-room-scene';
 import { retrySync, useStudyRoomState, type SyncStatus } from './study-room-state-store';
 
+const GITHUB_REPO_URL = 'https://github.com/rwzdk/qingyan-study-room';
+
 const props = defineProps<{
   scene: StudyRoomScene;
   activeTab: string;
-  tabItems: { key: string; icon: string; label: string }[];
+  tabItems: { key: string; icon: PixelIconName; label: string }[];
 }>();
 
 const emit = defineEmits<{
@@ -37,28 +44,19 @@ const localMenuOpen = ref(false);
 const retrying = ref(false);
 
 /** 头像优先级：自选头像 → Qoder 头像 → 内置默认头像。 */
-const avatar = computed(
-  () => profile.avatar || account.value?.picture || defaultAvatar,
-);
-const nickname = computed(() => {
-  const profileName = profile.nickname.trim();
-  if (profileName && profileName !== '学习者') return profileName;
-  return (
-    currentUser.value?.username ||
-    account.value?.name ||
-    profileName ||
-    '学习者'
-  );
-});
+const avatar = computed(() => displayAvatar(defaultAvatar));
+const nickname = computed(() => displayNickname());
 const localUsername = computed(
   () => currentUser.value?.username || '本地账号',
 );
+const chatAuthorId = computed(
+  () => currentUser.value?.id || account.value?.id || 'guest',
+);
+const chatAuthorName = computed(() => nickname.value);
 const qoderAvatar = computed(
   () => account.value?.picture || profile.avatar || defaultAvatar,
 );
-const qoderName = computed(
-  () => account.value?.name || profile.nickname || 'Qoder 用户',
-);
+const qoderName = computed(() => account.value?.name || displayNickname());
 
 const SYNC_LABEL: Record<SyncStatus, string> = {
   idle: '等待同步',
@@ -135,7 +133,7 @@ function openLocalHome() {
 async function confirmLocalLogout() {
   try {
     await ElMessageBox.confirm(
-      '退出本地账号？本机数据会保留，下次登录仍可继续使用。',
+      '确认退出登录？',
       '退出登录？',
       {
         confirmButtonText: '退出登录',
@@ -217,7 +215,7 @@ onBeforeUnmount(() => {
     <nav class="nav-capsule" aria-label="自习室导航">
       <div class="nav-brand">
         <span class="nav-brand-icon"><BrandMark /></span>
-        <span class="nav-brand-name">清砚自习室</span>
+        <span class="nav-brand-name">栖心自习室</span>
       </div>
 
       <button
@@ -247,7 +245,7 @@ onBeforeUnmount(() => {
         :class="{ active: activeTab === item.key }"
         @click="emit('switch-tab', item.key)"
       >
-        <IconifyIcon :icon="item.icon" class="nav-item-icon" />
+        <PixelIcon :name="item.icon" class="nav-item-icon" />
         {{ item.label }}
       </button>
     </nav>
@@ -314,6 +312,22 @@ onBeforeUnmount(() => {
 
     <div class="top-bar-side top-bar-right">
       <AmbientSound :scene="scene" />
+      <ReminderSettings />
+      <a
+        class="github-link"
+        :href="GITHUB_REPO_URL"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="打开 GitHub 仓库"
+        title="GitHub 仓库"
+      >
+        <IconifyIcon icon="lucide:github" />
+      </a>
+      <ChatRoom
+        :author-id="chatAuthorId"
+        :author-name="chatAuthorName"
+        :author-avatar="avatar"
+      />
       <div v-if="!STATIC_MODE" class="user-menu-wrap">
         <button
           type="button"
@@ -395,10 +409,6 @@ onBeforeUnmount(() => {
             <IconifyIcon icon="lucide:log-out" />
             退出并清除本机数据
           </button>
-
-          <p class="user-menu-note">
-            退出只清除本机数据，Qoder 登录会话由 Qoder 管理。
-          </p>
         </div>
       </div>
       <div v-else class="user-menu-wrap">
@@ -445,10 +455,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <p class="user-menu-note local-user-note">
-            数据保存在当前浏览器
-          </p>
-
           <div class="user-menu-divider" aria-hidden="true" />
 
           <button type="button" class="user-menu-item" @click="openLocalHome">
@@ -463,8 +469,6 @@ onBeforeUnmount(() => {
             <IconifyIcon icon="lucide:log-out" />
             退出登录
           </button>
-
-          <p class="user-menu-note">退出不会删除本机数据。</p>
         </div>
       </div>
     </div>
@@ -722,13 +726,6 @@ onBeforeUnmount(() => {
   background: rgb(255 90 90 / 0.1);
 }
 
-.user-menu-note {
-  margin: 6px 12px 6px;
-  color: rgb(255 255 255 / 0.32);
-  font-size: 10px;
-  line-height: 1.6;
-}
-
 .back-button {
   display: inline-flex;
   align-items: center;
@@ -812,22 +809,16 @@ onBeforeUnmount(() => {
 }
 
 .nav-item-icon {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  opacity: 0.62;
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
+  opacity: 0.78;
+  transition: opacity 0.18s ease;
 }
 
 .nav-item:hover .nav-item-icon,
 .nav-item.active .nav-item-icon {
   opacity: 1;
-}
-
-.nav-item.active .nav-item-icon {
-  transform: scale(1.04);
 }
 
 .nav-item:hover {
@@ -1095,11 +1086,6 @@ onBeforeUnmount(() => {
   .nav-item {
     gap: 5px;
     padding: 8px 11px;
-  }
-
-  .nav-item-icon {
-    width: 14px;
-    height: 14px;
   }
 
   .user-menu {

@@ -1,0 +1,11 @@
+name = "qingyan-chat"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# 运行 `pnpm chat:db:create` 后，把输出的 database_id 填到这里。
+# 本地 `pnpm chat:dev` 可以使用下面的占位值；远程部署前必须替换。
+[[d1_databases]]
+binding = "DB"
+database_name = "qingyan-chat"
+database_id = "b48916d5-c4de-4417-b8c6-31841d1ef61a"
+migrations_dir = "migrations"

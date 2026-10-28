@@ -1,10 +1,10 @@
-# 清砚自习室
+# 栖心自习室
 
 一个面向学习者的沉浸式自习空间。它把 3D 小岛打卡、番茄专注、学习计划、阅读笔记和主页统计放进同一个界面，用雨林、雪日、星夜、海岸、麦田等自然场景帮助用户进入专注状态。
 
 **在线体验：** https://qingyan-study-room-j8vzdjdlheu.qoder.website
 
-![清砚自习室小岛](docs/screenshots/island.jpg)
+![栖心自习室小岛](docs/screenshots/island.jpg)
 
 ## 本地账号
 
@@ -19,6 +19,7 @@
 - **本地账号**：本机注册 / 登录 / 退出，PBKDF2 密码哈希，会话保持与多账号数据隔离。
 - **小岛打卡**：3D 像素小岛随打卡成长，展示持续来访、岛龄、本周足迹和年度热力图。
 - **专注室**：25 / 45 / 60 分钟番茄钟，沉浸模式，今日待办，以及 Web Audio 实时合成的环境音。
+- **结束提醒**：自定义提示文字，专注结束后播报语音并响起提示铃；页面切到后台也能准点提醒。
 - **学习计划**：把长期目标拆成任务，记录完成状态和整体进度。
 - **阅读笔记**：新建、编辑和保存文档，集中管理学习记录。
 - **主页统计**：加入天数、连续活跃、打卡总数、年度进度和最近 7 天专注轨迹。
@@ -89,6 +90,24 @@ Vite 已把 `/functions/v1/app` 代理到 `http://127.0.0.1:8000`。静态模式
 pnpm build:static
 pnpm preview
 ```
+
+## 语音提醒服务
+
+专注结束的提示语音默认走**阿里云百炼 Qwen3-TTS**（`qwen3-tts-flash`，与 qc-student 用的是同一套服务与音色），由 `cloudflare/chat-worker` 的 `POST /api/tts` 代取：
+
+- 页面只发 `{ text, voice, speed }`，API Key 存在 Worker secret 里，不会出现在前端；上游返回的是带签名的 http 直链，由 Worker 转成音频字节再回给页面，避免 HTTPS 页面加载混合内容被拦。
+- 云端不可用、未配置或请求失败时，自动回退到浏览器内置语音（`speechSynthesis`），提醒不会因此消失。
+- 计费按字符（一次响应里的 `usage.characters` 即为计费字数），新用户有 90 天免费额度，具体单价以百炼控制台为准；同一段提示文字会在前端缓存，重复轮次不再重复合成。
+
+部署（改动 worker.js 或换密钥后执行一次）：
+
+```bash
+npx wrangler secret put QWEN_TTS_API_KEY --config cloudflare/chat-worker/wrangler.toml
+npx wrangler deploy --config cloudflare/chat-worker/wrangler.toml
+```
+
+本地联调：`.dev.vars` 里放 `QWEN_TTS_API_KEY=...`（已被 gitignore），跑 `pnpm chat:dev`，再用
+`VITE_TTS_API_URL=http://127.0.0.1:8787/api/tts pnpm dev:static` 启动前端。
 
 ## 项目结构
 

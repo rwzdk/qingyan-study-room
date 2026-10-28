@@ -1,6 +1,8 @@
 import type { Component } from 'vue';
 import {
   ArrowLeft,
+  Bell,
+  BellOff,
   BookOpen,
   Calendar,
   CalendarCheck,
@@ -21,7 +23,6 @@ import {
   MapPin,
   Maximize2,
   MessageCircle,
-  Mountain,
   Pause,
   Pencil,
   Play,
@@ -44,6 +45,8 @@ import {
 
 export const icons: Record<string, Component> = {
   'lucide:arrow-left': ArrowLeft,
+  'lucide:bell': Bell,
+  'lucide:bell-off': BellOff,
   'lucide:book-open': BookOpen,
   'lucide:calendar': Calendar,
   'lucide:calendar-check': CalendarCheck,
@@ -64,7 +67,6 @@ export const icons: Record<string, Component> = {
   'lucide:map-pin': MapPin,
   'lucide:maximize-2': Maximize2,
   'lucide:message-circle': MessageCircle,
-  'lucide:mountain': Mountain,
   'lucide:pause': Pause,
   'lucide:pencil': Pencil,
   'lucide:play': Play,

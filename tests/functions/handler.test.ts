@@ -167,6 +167,41 @@ describe('study room function handler', () => {
     });
   });
 
+  it('preserves todo dates and drops malformed ones', async () => {
+    const supabase = createFakeSupabase();
+    const nextState = {
+      ...emptyState(),
+      todos: [
+        {
+          id: 't1',
+          title: '复习',
+          completed: false,
+          date: '2026-10-23',
+        },
+        {
+          id: 't2',
+          title: '做题',
+          completed: true,
+          date: '2026-10-23',
+          completedOn: '2026-10-24',
+        },
+        { id: 't3', title: '无日期', completed: false, date: '10/23' },
+      ],
+    };
+    const { response, body } = await call(supabase, 'state', {
+      method: 'PUT',
+      body: putPayload({ state: nextState }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(body.state.todos).toEqual([
+      nextState.todos[0],
+      nextState.todos[1],
+      { id: 't3', title: '无日期', completed: false },
+    ]);
+    expect(supabase.rows()[0].state.todos).toEqual(body.state.todos);
+  });
+
   it('returns saved data on a later bootstrap', async () => {
     const supabase = createFakeSupabase();
     const nextState = {

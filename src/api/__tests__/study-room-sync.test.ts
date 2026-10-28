@@ -92,6 +92,41 @@ describe('bootstrapStudyRoom', () => {
     expect(data.updatedAt).toBeNull();
   });
 
+  it('keeps valid todo dates and drops malformed ones', async () => {
+    stubFetch(
+      jsonResponse({
+        user: { id: 'u1', name: '测试同学', picture: '' },
+        profile,
+        state: {
+          ...state,
+          todos: [
+            {
+              id: 't1',
+              title: '复习',
+              completed: true,
+              date: '2026-10-23',
+              completedOn: '2026-10-24',
+            },
+            { id: 't2', title: '做题', completed: false, date: '10/23' },
+          ],
+        },
+        updatedAt: '2026-10-24T05:00:00.000Z',
+      }),
+    );
+
+    const data = await bootstrapStudyRoom();
+    expect(data.state?.todos).toEqual([
+      {
+        id: 't1',
+        title: '复习',
+        completed: true,
+        date: '2026-10-23',
+        completedOn: '2026-10-24',
+      },
+      { id: 't2', title: '做题', completed: false },
+    ]);
+  });
+
   it('maps 401 to login_required', async () => {
     stubFetch(jsonResponse({ error: 'login_required' }, 401));
 

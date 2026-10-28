@@ -1,14 +1,24 @@
 <script lang="ts" setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import IconifyIcon from '#/components/IconifyIcon.vue';
 
+import {
+  dateKeyOf,
+  isDateKey,
+  isTodoVisibleOn,
+  todoDateFromId,
+  todayKey,
+} from './study-room-store';
+import type { StudyRoomTodo } from './study-room-types';
 import { scheduleSaveStudyRoom, useStudyRoomState } from './study-room-state-store';
 
 interface TodoItem {
   id: string;
   title: string;
   completed: boolean;
+  date: string;
+  completedOn?: string;
 }
 
 const { state } = useStudyRoomState();
@@ -16,23 +26,41 @@ const { state } = useStudyRoomState();
 const todos = ref<TodoItem[]>([]);
 const value = ref('');
 const loaded = ref(false);
+const today = ref(todayKey());
 
 function loadTodos(): TodoItem[] {
   const parsed = state.value.todos ?? [];
   if (!Array.isArray(parsed)) return [];
   return parsed
     .filter(
-      (item): item is TodoItem =>
+      (item): item is StudyRoomTodo =>
         Boolean(item) &&
         typeof item === 'object' &&
-        typeof (item as TodoItem).id === 'string' &&
-        typeof (item as TodoItem).title === 'string',
+        typeof item.id === 'string' &&
+        typeof item.title === 'string',
     )
     .map((item) => ({
       id: item.id,
       title: item.title,
       completed: Boolean(item.completed),
+      date: isDateKey(item.date)
+        ? item.date
+        : (todoDateFromId(item.id) ?? today.value),
+      completedOn: isDateKey(item.completedOn) ? item.completedOn : undefined,
     }));
+}
+
+function needsDateMigration(): boolean {
+  const parsed = state.value.todos ?? [];
+  if (!Array.isArray(parsed)) return false;
+  return parsed.some(
+    (item) =>
+      Boolean(item) &&
+      typeof item === 'object' &&
+      typeof item.id === 'string' &&
+      typeof item.title === 'string' &&
+      !isDateKey(item.date),
+  );
 }
 
 function saveTodos() {
@@ -45,16 +73,27 @@ function addTodo() {
   if (!trimmed) return;
   todos.value = [
     ...todos.value,
-    { id: `todo-${Date.now()}-${Math.random().toString(36).slice(2)}`, title: trimmed, completed: false },
+    {
+      id: `todo-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title: trimmed,
+      completed: false,
+      date: today.value,
+    },
   ];
   value.value = '';
   saveTodos();
 }
 
 function toggleTodo(id: string) {
-  todos.value = todos.value.map((item) =>
-    item.id === id ? { ...item, completed: !item.completed } : item,
-  );
+  todos.value = todos.value.map((item) => {
+    if (item.id !== id) return item;
+    const completed = !item.completed;
+    return {
+      ...item,
+      completed,
+      completedOn: completed ? today.value : undefined,
+    };
+  });
   saveTodos();
 }
 
@@ -94,21 +133,54 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-const activeTodos = computed(() => todos.value.filter((item) => !item.completed));
-const doneTodos = computed(() => todos.value.filter((item) => item.completed));
+const visibleTodos = computed(() =>
+  todos.value.filter((item) => isTodoVisibleOn(item, today.value)),
+);
+const activeTodos = computed(() => visibleTodos.value.filter((item) => !item.completed));
+const doneTodos = computed(() => visibleTodos.value.filter((item) => item.completed));
 const orderedTodos = computed(() => [...activeTodos.value, ...doneTodos.value]);
-const total = computed(() => todos.value.length);
+const total = computed(() => visibleTodos.value.length);
 const completedCount = computed(() => doneTodos.value.length);
 const progress = computed(() =>
   total.value > 0 ? Math.round((completedCount.value / total.value) * 100) : 0,
 );
 
+const yesterday = computed(() => {
+  const [year = 1970, month = 1, day = 1] = today.value.split('-').map(Number);
+  return dateKeyOf(new Date(year, month - 1, day - 1));
+});
+
+function carryLabel(item: TodoItem): string {
+  if (item.date >= today.value) return '';
+  return item.date === yesterday.value ? '昨日' : item.date.slice(5);
+}
+
+let dayTimer: ReturnType<typeof setInterval> | null = null;
+
+function syncToday() {
+  const next = todayKey();
+  if (next !== today.value) today.value = next;
+}
+
+onMounted(() => {
+  dayTimer = setInterval(syncToday, 30_000);
+  document.addEventListener('visibilitychange', syncToday);
+});
+
+onUnmounted(() => {
+  if (dayTimer) clearInterval(dayTimer);
+  dayTimer = null;
+  document.removeEventListener('visibilitychange', syncToday);
+});
+
 // 本地状态加载完成后再同步（避免竞态读到空数组）
 watch(
   () => state.value.todos,
   () => {
+    const migrateDates = needsDateMigration();
     todos.value = loadTodos();
     loaded.value = true;
+    if (migrateDates) saveTodos();
   },
   { immediate: true },
 );
@@ -180,11 +252,15 @@ watch(
             class="todo-edit-input"
             :aria-label="`编辑待办：${item.title}`"
             @click.stop
-            @keydown.enter.prevent="saveEdit(item)"
-            @keydown.escape.prevent="cancelEdit"
+            @keydown.enter.stop.prevent="saveEdit(item)"
+            @keydown.escape.stop.prevent="cancelEdit"
+            @keydown.space.stop
             @blur="saveEdit(item)"
           />
           <span v-else class="todo-item-title">{{ item.title }}</span>
+          <span v-if="carryLabel(item)" class="todo-carry" :title="item.date">
+            {{ carryLabel(item) }}
+          </span>
 
           <button
             v-if="editingId !== item.id"
@@ -452,6 +528,16 @@ watch(
 .todo-item.done .todo-item-title {
   color: rgb(255 255 255 / 0.45);
   text-decoration: line-through;
+}
+
+.todo-carry {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--study-room-primary) 78%, #fff);
+  background: color-mix(in srgb, var(--study-room-primary) 12%, transparent);
+  font-size: 9px;
+  line-height: 16px;
 }
 
 .todo-edit-input {

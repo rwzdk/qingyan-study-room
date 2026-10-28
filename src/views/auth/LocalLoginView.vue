@@ -3,9 +3,10 @@ import { computed, onMounted, ref } from 'vue';
 
 import BrandMark from '#/components/BrandMark.vue';
 import {
+  canPersistLocalData,
   hasLocalAccounts,
   loginLocalUser,
-  localAccounts,
+  refreshLocalStorageSupport,
   registerLocalUser,
 } from '#/lib/local-auth';
 import SceneAtmosphere from '#/views/studyRoom/SceneAtmosphere.vue';
@@ -16,7 +17,6 @@ import {
   getStudyRoomSceneCopy,
   type StudyRoomScene,
 } from '#/views/studyRoom/study-room-scene';
-import { hasLegacyLocalData } from '#/views/studyRoom/study-room-state-store';
 
 type AuthMode = 'login' | 'register';
 
@@ -26,12 +26,10 @@ const password = ref('');
 const confirmPassword = ref('');
 const error = ref('');
 const busy = ref(false);
-const legacyAvailable = ref(false);
 const scene = ref<StudyRoomScene>(STUDY_ROOM_DEFAULT_SCENE);
 const sceneCopy = computed(() => getStudyRoomSceneCopy(scene.value));
 
 onMounted(() => {
-  legacyAvailable.value = hasLegacyLocalData();
   try {
     scene.value = asStudyRoomScene(
       window.localStorage.getItem(STUDY_ROOM_SCENE_STORAGE_KEY),
@@ -39,6 +37,7 @@ onMounted(() => {
   } catch {
     scene.value = STUDY_ROOM_DEFAULT_SCENE;
   }
+  refreshLocalStorageSupport();
 });
 
 function switchMode(next: AuthMode): void {
@@ -70,6 +69,10 @@ async function submit(): Promise<void> {
     error.value = validationError;
     return;
   }
+  if (mode.value === 'login' && !hasLocalAccounts.value) {
+    error.value = '当前浏览器没有找到账号数据，请先注册';
+    return;
+  }
   busy.value = true;
   try {
     if (mode.value === 'register') {
@@ -79,13 +82,12 @@ async function submit(): Promise<void> {
     }
     // LocalAuthGate 会监听 currentUser 并加载对应账号数据。
   } catch (cause) {
+    refreshLocalStorageSupport();
     error.value = cause instanceof Error ? cause.message : '操作失败，请重试';
   } finally {
     busy.value = false;
   }
 }
-
-const accountCount = computed(() => localAccounts.value.length);
 </script>
 
 <template>
@@ -103,20 +105,23 @@ const accountCount = computed(() => localAccounts.value.length);
         <span class="local-login-brand-icon">
           <BrandMark />
         </span>
-        <span>清砚自习室</span>
-        <span class="local-login-brand-tag">LOCAL</span>
+        <span>栖心自习室</span>
       </div>
 
-      <p class="local-login-eyebrow">QUIET FOCUS, LOCAL FIRST</p>
+      <p class="local-login-eyebrow">QUIET FOCUS</p>
       <h1 id="local-login-title">
-        {{ mode === 'register' ? '创建你的本地自习账号' : '回到你的自习室' }}
+        {{ mode === 'register' ? '创建你的自习账号' : '回到你的自习室' }}
       </h1>
       <p class="local-login-subtitle">
         {{
           mode === 'register'
-            ? '账号与自习数据只保存在当前浏览器，用于区分本机不同的使用者。'
+            ? '从这里开始，记录每一天的专注。'
             : '登录后继续你的打卡、计划、笔记与专注记录。'
         }}
+      </p>
+
+      <p v-if="!canPersistLocalData" class="local-login-warning" role="alert">
+        当前浏览器无法保存本地数据，注册的账号刷新后会丢失。请换用普通浏览器窗口（不要用无痕模式或内嵌预览）打开。
       </p>
 
       <div class="local-login-tabs" role="tablist" aria-label="登录方式">
@@ -189,23 +194,11 @@ const accountCount = computed(() => localAccounts.value.length);
             busy
               ? '处理中…'
               : mode === 'register'
-                ? '创建本地账号'
+                ? '创建账号'
                 : '登录'
           }}
         </button>
       </form>
-
-      <p
-        v-if="legacyAvailable && mode === 'register' && !hasLocalAccounts"
-        class="local-login-note local-login-note--accent"
-      >
-        首次创建账号时，会把本机已有的自习数据归入此账号。
-      </p>
-      <p class="local-login-note">
-        本地账号仅用于本机数据隔离，不是服务端安全认证。清除浏览器数据或更换设备会丢失，
-        请在主页定期导出备份。
-        <span v-if="accountCount > 0">本机已有 {{ accountCount }} 个账号。</span>
-      </p>
     </main>
   </div>
 </template>
@@ -259,17 +252,6 @@ const accountCount = computed(() => localAccounts.value.length);
   box-shadow:
     0 4px 14px rgb(0 0 0 / 0.24),
     0 0 0 1px rgb(255 255 255 / 0.08) inset;
-}
-
-.local-login-brand-tag {
-  margin-left: auto;
-  padding: 3px 7px;
-  border: 1px solid
-    color-mix(in srgb, var(--study-room-primary, #d7ef83) 30%, transparent);
-  border-radius: 999px;
-  color: var(--study-room-primary, #d7ef83);
-  font-size: 9px;
-  letter-spacing: 0.12em;
 }
 
 .local-login-eyebrow {
@@ -378,6 +360,17 @@ const accountCount = computed(() => localAccounts.value.length);
   font-size: 11px;
 }
 
+.local-login-warning {
+  margin: 0 0 16px;
+  padding: 9px 11px;
+  border: 1px solid rgb(255 186 92 / 0.32);
+  border-radius: 10px;
+  color: #ffd79a;
+  background: rgb(120 70 10 / 0.2);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
 .local-login-submit {
   margin-top: 3px;
   padding: 12px 16px;
@@ -401,21 +394,6 @@ const accountCount = computed(() => localAccounts.value.length);
 .local-login-submit:disabled {
   cursor: wait;
   opacity: 0.65;
-}
-
-.local-login-note {
-  margin: 16px 0 0;
-  color: rgb(255 255 255 / 0.38);
-  font-size: 10px;
-  line-height: 1.65;
-}
-
-.local-login-note--accent {
-  color: color-mix(
-    in srgb,
-    var(--study-room-primary, #d7ef83) 72%,
-    white
-  );
 }
 
 @media (max-width: 480px) {

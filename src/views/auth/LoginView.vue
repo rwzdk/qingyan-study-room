@@ -25,7 +25,7 @@ function switchAccount() {
         <span class="login-brand-mark">
           <BrandMark />
         </span>
-        <span>清砚自习室</span>
+        <span>栖心自习室</span>
       </div>
 
       <p class="auth-eyebrow">Quiet focus, synced</p>
@@ -56,13 +56,9 @@ function switchAccount() {
       >
         使用其他 Qoder 账号
       </a>
-
-      <p class="auth-note">
-        退出登录只会清除本机数据；Qoder 登录会话由 Qoder 管理。
-      </p>
     </main>
 
-    <footer class="auth-footer">清砚 · 安静专注</footer>
+    <footer class="auth-footer">栖心 · 安静专注</footer>
   </div>
 </template>
 
@@ -194,15 +190,6 @@ function switchAccount() {
 .auth-link:hover {
   color: #fff;
   text-decoration: underline;
-}
-
-.auth-note {
-  margin: 22px 0 0;
-  padding-top: 18px;
-  border-top: 1px solid rgb(255 255 255 / 0.09);
-  color: rgb(255 255 255 / 0.38);
-  font-size: 11px;
-  line-height: 1.7;
 }
 
 .auth-footer {

@@ -3,6 +3,20 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import IconifyIcon from '#/components/IconifyIcon.vue';
 
+import {
+  armReminder,
+  cancelReminder,
+  claimReminderFire,
+  hasArmedReminder,
+  initReminderEngine,
+  playCloudVoice,
+  playReminderNow,
+  prepareCloudVoice,
+  showReminderNotification,
+  speakReminder,
+  unlockReminderAudio,
+} from './focus-reminder-engine';
+import { loadReminderPrefs } from './focus-reminder-prefs';
 import { useStudyRoomState, scheduleSaveStudyRoom } from './study-room-state-store';
 
 const { state } = useStudyRoomState();
@@ -46,6 +60,15 @@ const hydrated = ref(false);
 let interval: ReturnType<typeof setInterval> | null = null;
 let expiresAt: number | null = null;
 let sessionId = createSessionId();
+let originalTitle = '';
+let titleFlashing = false;
+/** 本轮提醒的播报权：多标签页同时开着时只让一个页面出声。 */
+let fireClaimed = false;
+let fireKey = '';
+let spokenKey = '';
+let firedAt = 0;
+let firedMode: TimerMode = 'focus';
+let removeUnlockListener: (() => void) | null = null;
 
 function createSessionId() {
   const id =
@@ -117,35 +140,89 @@ function persist() {
   });
 }
 
-function playBeep() {
-  try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 800;
-    gain.gain.value = 0.12;
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.8);
-    osc.stop(ctx.currentTime + 1.8);
-  } catch {
-    // 音频不可用时静默。
+function flashTitle() {
+  if (titleFlashing) return;
+  titleFlashing = true;
+  document.title = '该休息啦 · 栖心自习室';
+}
+
+function restoreTitle() {
+  if (!titleFlashing) return;
+  titleFlashing = false;
+  document.title = originalTitle || '栖心自习室';
+}
+
+/**
+ * 播报提示。到点这一刻绝不等待网络：已经缓存好的云端音频直接用，
+ * 否则立刻用浏览器语音兜底，同时后台补取云端音频留给下一轮。
+ */
+function speakNow(prefs: ReturnType<typeof loadReminderPrefs>) {
+  if (!prefs.text.trim()) return false;
+  if (prefs.voiceSource === 'cloud') {
+    if (playCloudVoice(prefs.text, prefs)) return true;
+    void prepareCloudVoice(prefs.text, prefs);
   }
+  return speakReminder(prefs.text, prefs);
+}
+
+/** 把提示音与到点回调排到音频时间轴上：隐藏标签页里主线程定时器被降频也能准点响。 */
+function armReminderForRound() {
+  const prefs = loadReminderPrefs();
+  if (!prefs.enabled || expiresAt === null) {
+    cancelReminder();
+    return;
+  }
+  unlockReminderAudio();
+  const withVoice = mode.value === 'focus';
+  // 云端合成有延迟，开跑时先把这段话说好备着；链路会抖，失败就再试一次。
+  if (withVoice && prefs.useVoice && prefs.voiceSource === 'cloud') {
+    void prepareCloudVoice(prefs.text, prefs).then((ready) => {
+      if (!ready) void prepareCloudVoice(prefs.text, prefs);
+    });
+  }
+  armReminder(expiresAt, prefs.sound, {
+    onDue: () => handleExpire(),
+    onSpeak: () => {
+      if (!fireClaimed) return;
+      const current = loadReminderPrefs();
+      if (!current.enabled || !current.useVoice || !withVoice) return;
+      if (speakNow(current)) spokenKey = fireKey;
+    },
+  });
 }
 
 function recordCompletedFocusSession(minutes: number) {
   // 完整专注结束后写入本地 focus_sessions，供主页统计。
+  const sessions = state.value.focus_sessions ?? [];
+  const last = sessions[sessions.length - 1];
+  if (last && last.sessionId === sessionId) return;
   state.value.focus_sessions = [
-    ...(state.value.focus_sessions ?? []),
+    ...sessions,
     { minutes, sessionId, createdAt: new Date().toISOString() },
   ];
   scheduleSaveStudyRoom();
 }
 
 function handleExpire() {
+  // 音频回调与主线程定时器可能同时到达，只处理一次。
+  if (!isRunning.value) return;
   const wasFocus = mode.value === 'focus';
-  playBeep();
+  const key = `${sessionId}:${wasFocus ? 'focus' : 'break'}`;
+  fireKey = key;
+  const prefs = loadReminderPrefs();
+  fireClaimed = claimReminderFire(key);
+
+  if (prefs.enabled && fireClaimed && wasFocus) {
+    if (prefs.useNotification) {
+      showReminderNotification('专注完成啦', prefs.text.trim() || '该休息一下了');
+    }
+    flashTitle();
+  }
+  // 提示音没排上（比如音频被浏览器拦着）时立刻补一声。
+  if (prefs.enabled && !hasArmedReminder() && prefs.sound !== 'none') {
+    playReminderNow(prefs.sound);
+  }
+
   if (wasFocus) {
     completed.value += 1;
     recordCompletedFocusSession(props.focusMinutes);
@@ -157,6 +234,8 @@ function handleExpire() {
   remaining.value = (wasFocus ? props.breakMinutes : props.focusMinutes) * 60;
   isRunning.value = false;
   expiresAt = null;
+  firedAt = Date.now();
+  firedMode = wasFocus ? 'focus' : 'break';
   persist();
 }
 
@@ -167,7 +246,14 @@ function start() {
   }
   expiresAt = Date.now() + remaining.value * 1000;
   isRunning.value = true;
+  fireClaimed = false;
+  fireKey = '';
+  spokenKey = '';
+  firedAt = 0;
+  firedMode = mode.value;
+  restoreTitle();
   persist();
+  armReminderForRound();
 }
 
 function pause() {
@@ -176,7 +262,9 @@ function pause() {
   }
   expiresAt = null;
   isRunning.value = false;
+  restoreTitle();
   persist();
+  cancelReminder();
 }
 
 function reset() {
@@ -187,7 +275,9 @@ function reset() {
   mode.value = 'focus';
   round.value = 1;
   completed.value = 0;
+  restoreTitle();
   persist();
+  cancelReminder();
 }
 
 function skip() {
@@ -203,7 +293,9 @@ function skip() {
   }
   expiresAt = null;
   isRunning.value = false;
+  restoreTitle();
   persist();
+  cancelReminder();
 }
 
 function toggle() {
@@ -222,7 +314,21 @@ function clearTimer() {
   }
 }
 
+function onVisibility() {
+  if (document.hidden) return;
+  restoreTitle();
+  // 语音在后台标签页可能没播出来，回到前台补播一次（只有专注轮才需要播报）。
+  if (!fireClaimed || !firedAt || spokenKey === fireKey) return;
+  if (firedMode !== 'focus') return;
+  if (Date.now() - firedAt > 120_000) return;
+  const prefs = loadReminderPrefs();
+  if (!prefs.enabled || !prefs.useVoice || !prefs.text.trim()) return;
+  if (speakNow(prefs)) spokenKey = fireKey;
+}
+
 onMounted(() => {
+  initReminderEngine();
+  originalTitle = document.title;
   const snapshot = load();
   if (snapshot) {
     mode.value = snapshot.mode;
@@ -236,10 +342,12 @@ onMounted(() => {
         remaining.value = restored;
         expiresAt = deadline;
         isRunning.value = true;
+        armReminderForRound();
       } else {
         // 已过期：结算并切到下一阶段
         if (snapshot.mode === 'focus') {
           completed.value += 1;
+          recordCompletedFocusSession(props.focusMinutes);
         } else {
           round.value += 1;
           sessionId = createSessionId();
@@ -251,17 +359,38 @@ onMounted(() => {
         expiresAt = null;
       }
     } else {
-      // 未运行时以当前 props 为准（预设时长可能已变），不恢复旧快照剩余时间，
+      // 未运行时：时长设置没变就恢复暂停时的剩余时间，否则以当前 props 为准，
       // 否则选了 45 分钟仍显示 25:00。
+      const sameDuration =
+        snapshot.focusMinutes === props.focusMinutes &&
+        snapshot.breakMinutes === props.breakMinutes;
+      const total =
+        (mode.value === 'focus' ? props.focusMinutes : props.breakMinutes) * 60;
       remaining.value =
-        (snapshot.mode === 'focus' ? props.focusMinutes : props.breakMinutes) * 60;
+        sameDuration && snapshot.remaining > 0
+          ? Math.min(snapshot.remaining, total)
+          : total;
     }
   }
   hydrated.value = true;
-  // 沉浸实例在挂载时即应自动开始（props.immersive 为 true，但需等 hydrated 完成后）
-  if (props.immersive && !isRunning.value) {
+  // 全新进入沉浸模式且此前没有计时记录时自动开始；已有记录时保持原来的运行/暂停状态。
+  if (props.immersive && !isRunning.value && !snapshot) {
     start();
   }
+  // 浏览器自动播放策略：首次交互后解锁音频，并给正在运行的计时补排提示音。
+  const unlock = () => {
+    unlockReminderAudio();
+    if (isRunning.value && !hasArmedReminder()) armReminderForRound();
+    document.removeEventListener('pointerdown', unlock);
+    document.removeEventListener('keydown', unlock);
+  };
+  document.addEventListener('pointerdown', unlock);
+  document.addEventListener('keydown', unlock);
+  document.addEventListener('visibilitychange', onVisibility);
+  removeUnlockListener = () => {
+    document.removeEventListener('pointerdown', unlock);
+    document.removeEventListener('keydown', unlock);
+  };
 });
 
 watch(
@@ -297,7 +426,11 @@ watch(
   },
 );
 
-onBeforeUnmount(clearTimer);
+onBeforeUnmount(() => {
+  clearTimer();
+  removeUnlockListener?.();
+  document.removeEventListener('visibilitychange', onVisibility);
+});
 
 const totalSeconds = computed(() =>
   (mode.value === 'focus' ? props.focusMinutes : props.breakMinutes) * 60,

@@ -10,7 +10,13 @@
     "build:static": "vue-tsc --noEmit && vite build --mode static",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "chat:dev": "wrangler dev --config cloudflare/chat-worker/wrangler.toml --local --port 8787",
+    "chat:login": "wrangler login",
+    "chat:db:create": "wrangler d1 create qingyan-chat",
+    "chat:db:migrate:local": "wrangler d1 migrations apply qingyan-chat --local --config cloudflare/chat-worker/wrangler.toml",
+    "chat:db:migrate": "wrangler d1 migrations apply qingyan-chat --remote --config cloudflare/chat-worker/wrangler.toml",
+    "chat:deploy": "wrangler deploy --config cloudflare/chat-worker/wrangler.toml"
   },
   "dependencies": {
     "element-plus": "^2.14.7",
@@ -27,6 +33,13 @@
     "typescript": "^5.9.3",
     "vite": "^8.3.5",
     "vitest": "^5.0.5",
-    "vue-tsc": "^3.3.13"
+    "vue-tsc": "^3.3.13",
+    "wrangler": "^4.152.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
   }
 }

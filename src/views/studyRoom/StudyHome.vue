@@ -13,7 +13,7 @@ import {
   useLocalUser,
 } from '#/lib/local-user';
 import { STATIC_MODE } from '#/lib/app-mode';
-import { currentUser } from '#/lib/local-auth';
+import { displayAvatar, displayNickname } from '#/lib/display-identity';
 import { account } from '#/session/session-state';
 import {
   retrySync,
@@ -42,7 +42,8 @@ const profileForm = reactive({
 });
 
 function openProfileEditor() {
-  profileForm.nickname = profile.nickname;
+  // 打开时填界面正在显示的名字，避免弹窗里出现另一个名字。
+  profileForm.nickname = userNickname.value;
   // 本机默认头像资源路径不写入资料，留空时会回退到 Qoder 头像。
   profileForm.avatar = sanitizeAvatar(profile.avatar);
   profileEditVisible.value = true;
@@ -85,19 +86,8 @@ function saveProfile() {
   ElMessage.success('个人资料已保存');
 }
 
-const userAvatar = computed(
-  () => profile.avatar || account.value?.picture || defaultAvatarImg,
-);
-const userNickname = computed(() => {
-  const profileName = profile.nickname.trim();
-  if (profileName && profileName !== '学习者') return profileName;
-  return (
-    currentUser.value?.username ||
-    account.value?.name ||
-    profileName ||
-    '学习者'
-  );
-});
+const userAvatar = computed(() => displayAvatar(defaultAvatarImg));
+const userNickname = computed(() => displayNickname());
 
 // —— 账号同步状态（与顶栏账号菜单共用 store）——
 const SYNC_LABEL: Record<SyncStatus, string> = {
@@ -147,7 +137,7 @@ function handleExport() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `清砚自习室-${todayKey()}.json`;
+  anchor.download = `栖心自习室-${todayKey()}.json`;
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -335,7 +325,7 @@ const hasAnyData = computed(
           <p class="profile-eyebrow">Personal space</p>
           <h2>{{ userNickname }}</h2>
           <p class="profile-email">
-            {{ STATIC_MODE ? '本地账号 · 数据保存在当前浏览器' : '已登录 · 数据自动同步' }}
+            {{ STATIC_MODE ? '本地账号' : '已登录 · 数据自动同步' }}
           </p>
           <p v-if="!STATIC_MODE" class="profile-sync" :class="`is-${syncStatus}`">
             <IconifyIcon

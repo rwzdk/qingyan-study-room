@@ -9,6 +9,10 @@ dist
 tmp/
 coverage/
 .vite/
+.wrangler/
+.dev.vars
 .idea/
 .vscode/
 *.log
+# 本地站点发布恢复记录（含平台内部 ID，不入库）
+*.qoder.site

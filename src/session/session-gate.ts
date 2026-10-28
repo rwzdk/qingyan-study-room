@@ -42,6 +42,7 @@ import {
 } from '#/views/studyRoom/study-room-state-store';
 
 const POMODORO_KEY = 'qingyan-study-room:pomodoro:v1';
+const REMINDER_KEY = 'qingyan-study-room:focus-reminder:v1';
 
 export const migrationNeeded = ref(false);
 export const migrationBusy = ref(false);
@@ -320,6 +321,7 @@ export function logoutLocal(options: { redirect?: boolean } = {}): void {
       window.localStorage.removeItem(LEGACY_STATE_KEY);
       window.localStorage.removeItem(LEGACY_PROFILE_KEY);
       window.localStorage.removeItem(POMODORO_KEY);
+    window.localStorage.removeItem(REMINDER_KEY);
     } catch {
       // 本地存储不可用时继续退出流程。
     }
