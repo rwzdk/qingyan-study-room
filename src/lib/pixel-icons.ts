@@ -1,1 +1,1 @@
-export type PixelIconName = 'island' | 'focus' | 'plans' | 'docs' | 'home';
+export type PixelIconName = 'island' | 'focus' | 'plans' | 'docs' | 'home' | 'admin';

@@ -56,6 +56,16 @@ withDefaults(
       <rect x="3" y="4" width="2" height="9" opacity=".55" />
       <rect x="9" y="1" width="2" height="5" />
     </g>
+    <g v-else-if="name === 'admin'">
+      <rect x="3" y="2" width="10" height="2" />
+      <rect x="2" y="4" width="2" height="4" />
+      <rect x="12" y="4" width="2" height="4" />
+      <rect x="4" y="4" width="8" height="4" opacity=".4" />
+      <rect x="4" y="8" width="8" height="2" />
+      <rect x="5" y="10" width="6" height="2" />
+      <rect x="6" y="12" width="4" height="2" />
+      <rect x="7" y="14" width="2" height="1" opacity=".6" />
+    </g>
     <g v-else-if="name === 'home'">
       <rect x="2" y="13" width="12" height="1" />
       <rect x="3" y="8" width="2" height="5" />

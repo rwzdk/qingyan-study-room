@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { cloudEnabled } from '#/api/study-cloud';
 import { computed, onMounted, ref } from 'vue';
 
 import BrandMark from '#/components/BrandMark.vue';
@@ -69,7 +70,7 @@ async function submit(): Promise<void> {
     error.value = validationError;
     return;
   }
-  if (mode.value === 'login' && !hasLocalAccounts.value) {
+  if (mode.value === 'login' && !cloudEnabled() && !hasLocalAccounts.value) {
     error.value = '当前浏览器没有找到账号数据，请先注册';
     return;
   }
@@ -83,7 +84,11 @@ async function submit(): Promise<void> {
     // LocalAuthGate 会监听 currentUser 并加载对应账号数据。
   } catch (cause) {
     refreshLocalStorageSupport();
-    error.value = cause instanceof Error ? cause.message : '操作失败，请重试';
+    const message = cause instanceof Error ? cause.message : '操作失败，请重试';
+    error.value =
+      cloudEnabled() && message === '用户名或密码不正确'
+        ? '用户名或密码不正确；第一次使用云端版请先在「注册」页创建同名账号，本机数据会自动带过去'
+        : message;
   } finally {
     busy.value = false;
   }

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import AdminView from './AdminView.vue';
 import FocusRoom from './FocusRoom.vue';
 import IslandCheckin from './IslandCheckin.vue';
 import RoomTopBar from './RoomTopBar.vue';
@@ -12,6 +13,7 @@ import StudyPlans from './StudyPlans.vue';
 import TabErrorBoundary from './TabErrorBoundary.vue';
 import { flushStudyRoom } from './study-room-state-store';
 import './study-room-extension.css';
+import { currentUser } from '#/lib/local-auth';
 import type { PixelIconName } from '#/lib/pixel-icons';
 import {
   STUDY_ROOM_DEFAULT_SCENE,
@@ -24,15 +26,24 @@ import {
 const route = useRoute();
 const router = useRouter();
 
-type RoomTab = 'focus' | 'island' | 'plans' | 'docs' | 'home';
+type RoomTab = 'focus' | 'island' | 'plans' | 'docs' | 'home' | 'admin';
 
-const TAB_ITEMS: { key: RoomTab; icon: PixelIconName; label: string }[] = [
+const BASE_TAB_ITEMS: { key: RoomTab; icon: PixelIconName; label: string }[] = [
   { key: 'island', icon: 'island', label: '小岛' },
   { key: 'focus', icon: 'focus', label: '专注室' },
   { key: 'plans', icon: 'plans', label: '计划' },
   { key: 'docs', icon: 'docs', label: '阅读' },
   { key: 'home', icon: 'home', label: '主页' },
 ];
+
+const isAdmin = computed(() => currentUser.value?.isAdmin === true);
+
+/** 管理入口只对管理员显示。 */
+const tabItems = computed(() =>
+  isAdmin.value
+    ? [...BASE_TAB_ITEMS, { key: 'admin' as RoomTab, icon: 'admin' as PixelIconName, label: '管理' }]
+    : BASE_TAB_ITEMS,
+);
 
 function readScene(): StudyRoomScene {
   if (typeof window === 'undefined') return STUDY_ROOM_DEFAULT_SCENE;
@@ -56,7 +67,7 @@ const scene = ref<StudyRoomScene>(readScene());
 const sceneCopy = computed(() => getStudyRoomSceneCopy(scene.value));
 
 function getTab(value: unknown): RoomTab {
-  const tabs: RoomTab[] = ['focus', 'island', 'plans', 'docs', 'home'];
+  const tabs: RoomTab[] = ['focus', 'island', 'plans', 'docs', 'home', 'admin'];
   return tabs.includes(value as RoomTab) ? (value as RoomTab) : 'island';
 }
 
@@ -68,6 +79,11 @@ watch(
     currentTab.value = getTab(tab);
   },
 );
+
+// 失去管理员身份（换账号/被撤销）时不要停在管理页。
+watch(isAdmin, (admin) => {
+  if (!admin && currentTab.value === 'admin') currentTab.value = 'island';
+});
 
 function switchTab(tab: string) {
   currentTab.value = getTab(tab);
@@ -115,7 +131,7 @@ onBeforeUnmount(() => {
     <RoomTopBar
       :scene="scene"
       :active-tab="currentTab"
-      :tab-items="TAB_ITEMS"
+      :tab-items="tabItems"
       @switch-scene="switchScene"
       @switch-tab="switchTab"
     />
@@ -138,6 +154,13 @@ onBeforeUnmount(() => {
 
         <section v-else-if="currentTab === 'docs'" class="study-room-panel">
           <StudyDocs />
+        </section>
+
+        <section
+          v-else-if="currentTab === 'admin' && isAdmin"
+          class="study-room-panel"
+        >
+          <AdminView />
         </section>
 
         <section v-else class="study-room-panel">

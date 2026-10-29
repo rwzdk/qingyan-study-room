@@ -10,6 +10,12 @@ import {
   SyncApiError,
   type CloudSnapshot,
 } from '#/api/study-room-sync';
+import {
+  cloudEnabled,
+  cloudGetState,
+  cloudPutState,
+  readCloudSession,
+} from '#/api/study-cloud';
 import { STATIC_MODE } from '#/lib/app-mode';
 import {
   LEGACY_MIGRATED_KEY,
@@ -60,6 +66,12 @@ export interface LegacyLocalData {
 export type MigrationDecision = 'imported' | 'empty';
 
 const CACHE_KEY = 'qingyan-study-room:cache:v1';
+import { startCloudPresence, stopCloudPresence } from './cloud-presence';
+import {
+  asStudyRoomScene,
+  STUDY_ROOM_SCENE_STORAGE_KEY,
+} from './study-room-scene';
+
 export const LEGACY_STATE_KEY = 'qingyan-study-room:state:v1';
 export const LEGACY_PROFILE_KEY = 'qingyan-study-room:profile:v1';
 const LEGACY_BACKUP_PREFIX = 'qingyan-study-room:legacy-backup:v1:';
@@ -67,6 +79,225 @@ const MIGRATION_DECISION_PREFIX = 'qingyan-study-room:migrated:v1:';
 
 const SAVE_DEBOUNCE_MS = 800;
 const MAX_SYNC_BYTES = 900 * 1024;
+
+const CLOUD_META_PREFIX = 'qingyan-study-room:cloud-meta:v1:';
+const CLOUD_PUSH_DEBOUNCE_MS = 1200;
+
+interface CloudMeta {
+  revision: number | null;
+  updatedAt: string | null;
+  dirty: boolean;
+  dirtyAt: string | null;
+}
+
+const EMPTY_CLOUD_META: CloudMeta = {
+  revision: null,
+  updatedAt: null,
+  dirty: false,
+  dirtyAt: null,
+};
+
+let cloudMeta: CloudMeta = { ...EMPTY_CLOUD_META };
+let cloudPushTimer: ReturnType<typeof setTimeout> | null = null;
+let cloudRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cloudMetaKey(userIdValue: string): string {
+  return `${CLOUD_META_PREFIX}${userIdValue}`;
+}
+
+function readCloudMeta(userIdValue: string): CloudMeta {
+  const raw = readJson<unknown>(cloudMetaKey(userIdValue), null);
+  if (!isRecord(raw)) return { ...EMPTY_CLOUD_META };
+  return {
+    revision: Number.isInteger(raw.revision) ? Number(raw.revision) : null,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : null,
+    dirty: raw.dirty === true,
+    dirtyAt: typeof raw.dirtyAt === 'string' ? raw.dirtyAt : null,
+  };
+}
+
+function storeCloudMeta(userIdValue: string, meta: CloudMeta): void {
+  cloudMeta = meta;
+  writeJson(cloudMetaKey(userIdValue), meta);
+}
+
+/** 云端存的是「状态 + 资料 + 场景」一整份，和导出备份同构。 */
+function cloudPayload(): string {
+  return JSON.stringify({
+    state: normalizeStudyRoomState(state.value) ?? emptyStudyRoomState(),
+    profile: {
+      nickname: profile.nickname,
+      avatar: profile.avatar,
+      joinedAt: profile.joinedAt,
+    },
+    scene: asStudyRoomScene(
+      window.localStorage.getItem(STUDY_ROOM_SCENE_STORAGE_KEY),
+    ),
+  });
+}
+
+function applyCloudPayload(raw: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return false;
+    const nextState = normalizeStudyRoomState(parsed.state);
+    if (!nextState) return false;
+    state.value = nextState;
+    if (isRecord(parsed.profile)) {
+      setProfile({
+        nickname: sanitizeNickname(parsed.profile.nickname, profile.nickname),
+        avatar: sanitizeAvatar(parsed.profile.avatar),
+        joinedAt:
+          typeof parsed.profile.joinedAt === 'string'
+            ? parsed.profile.joinedAt
+            : profile.joinedAt,
+      });
+    }
+    if (parsed.scene !== undefined) {
+      window.localStorage.setItem(
+        STUDY_ROOM_SCENE_STORAGE_KEY,
+        asStudyRoomScene(parsed.scene),
+      );
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pushCloud(force = false): Promise<boolean> {
+  if (!STATIC_MODE || !cloudEnabled() || !userId.value) return false;
+  const session = readCloudSession();
+  if (!session || session.userId !== userId.value) return false;
+  const accountId = userId.value;
+  try {
+    const result = await cloudPutState(
+      session.token,
+      cloudPayload(),
+      force ? null : cloudMeta.revision,
+    );
+    if (userId.value !== accountId) return false;
+    if (result.ok) {
+      storeCloudMeta(accountId, {
+        revision: result.revision,
+        updatedAt: result.updatedAt,
+        dirty: false,
+        dirtyAt: null,
+      });
+      pending = false;
+      error.value = '';
+      syncStatus.value = 'synced';
+      if (cloudRetryTimer) {
+        clearTimeout(cloudRetryTimer);
+        cloudRetryTimer = null;
+      }
+      return true;
+    }
+    // 冲突：别的设备写过了。本地更晚才改就覆盖，否则采用云端版本。
+    const localDirtyAt = cloudMeta.dirtyAt;
+    if (
+      localDirtyAt &&
+      Date.parse(localDirtyAt) > Date.parse(result.conflict.updatedAt)
+    ) {
+      return await pushCloud(true);
+    }
+    if (applyCloudPayload(result.conflict.state)) {
+      writeStaticSnapshot();
+      storeCloudMeta(accountId, {
+        revision: result.conflict.revision,
+        updatedAt: result.conflict.updatedAt,
+        dirty: false,
+        dirtyAt: null,
+      });
+      pending = false;
+      syncStatus.value = 'synced';
+      return true;
+    }
+    return false;
+  } catch (caught) {
+    if (userId.value === accountId) {
+      error.value = caught instanceof Error ? caught.message : '同步失败';
+      syncStatus.value = 'error';
+    }
+    scheduleCloudRetry();
+    return false;
+  }
+}
+
+const CLOUD_RETRY_MS = 20_000;
+
+/** 推送失败后定时补推；网络恢复（online 事件）时也会立刻重试。 */
+function scheduleCloudRetry(): void {
+  if (!STATIC_MODE || !cloudEnabled() || !userId.value) return;
+  if (cloudRetryTimer) return;
+  cloudRetryTimer = setTimeout(() => {
+    cloudRetryTimer = null;
+    if (cloudMeta.dirty && !cloudPushTimer) void pushCloud();
+  }, CLOUD_RETRY_MS);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (cloudMeta.dirty && !cloudPushTimer) void pushCloud();
+  });
+}
+
+function scheduleCloudPush(): void {
+  if (!STATIC_MODE || !cloudEnabled() || !userId.value) return;
+  storeCloudMeta(userId.value, {
+    ...cloudMeta,
+    dirty: true,
+    dirtyAt: new Date().toISOString(),
+  });
+  if (cloudPushTimer) clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(() => {
+    cloudPushTimer = null;
+    void pushCloud();
+  }, CLOUD_PUSH_DEBOUNCE_MS);
+}
+
+/** 登录后先拉云端：云端没有就上传本地；本地有未上传的改动则优先上传。 */
+async function syncFromCloud(accountId: string): Promise<void> {
+  if (!STATIC_MODE || !cloudEnabled()) return;
+  const session = readCloudSession();
+  if (!session || session.userId !== accountId) return;
+  cloudMeta = readCloudMeta(accountId);
+  syncStatus.value = 'saving';
+  try {
+    const remote = await cloudGetState(session.token);
+    if (!userId.value || userId.value !== accountId) return;
+    if (!remote) {
+      await pushCloud(true);
+      return;
+    }
+    if (
+      cloudMeta.dirty &&
+      cloudMeta.dirtyAt &&
+      Date.parse(cloudMeta.dirtyAt) > Date.parse(remote.updatedAt)
+    ) {
+      await pushCloud(true);
+      return;
+    }
+    if (!applyCloudPayload(remote.state)) {
+      error.value = '云端数据格式异常，已保留本机数据';
+      syncStatus.value = 'error';
+      return;
+    }
+    writeStaticSnapshot();
+    storeCloudMeta(accountId, {
+      revision: remote.revision,
+      updatedAt: remote.updatedAt,
+      dirty: false,
+      dirtyAt: null,
+    });
+    pending = false;
+    error.value = '';
+    syncStatus.value = 'synced';
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : '同步失败';
+    syncStatus.value = 'error';
+  }
+}
 
 const state = ref<StudyRoomState>(emptyStudyRoomState());
 const loaded = ref(false);
@@ -242,6 +473,13 @@ export function hydrateLocalUser(userIdValue: string): void {
   loaded.value = true;
   loading.value = false;
   syncStatus.value = 'synced';
+  if (cloudPushTimer) {
+    clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+  }
+  cloudMeta = readCloudMeta(userIdValue);
+  startCloudPresence();
+  void syncFromCloud(userIdValue);
 }
 
 function markSyncError(message: string, outcomeUnknown: boolean): void {
@@ -329,6 +567,10 @@ export function scheduleSaveStudyRoom(): void {
   if (STATIC_MODE) {
     writeStaticSnapshot();
     clearSaveTimer();
+    if (cloudEnabled()) {
+      scheduleCloudPush();
+      return;
+    }
     saveTimer = setTimeout(() => {
       saveTimer = null;
       pending = false;
@@ -481,6 +723,14 @@ export async function flushStudyRoom(): Promise<void> {
   clearSaveTimer();
   if (STATIC_MODE) {
     writeStaticSnapshot();
+    if (cloudEnabled()) {
+      if (cloudPushTimer) {
+        clearTimeout(cloudPushTimer);
+        cloudPushTimer = null;
+      }
+      await pushCloud();
+      return;
+    }
     pending = false;
     syncStatus.value = 'synced';
     return;
@@ -666,6 +916,12 @@ export function isStudyRoomSyncPending(): boolean {
 
 export function resetForLogout(): void {
   clearSaveTimer();
+  stopCloudPresence();
+  if (cloudPushTimer) {
+    clearTimeout(cloudPushTimer);
+    cloudPushTimer = null;
+  }
+  cloudMeta = { ...EMPTY_CLOUD_META };
   epoch += 1;
   generation += 1;
   requestSeq += 1;

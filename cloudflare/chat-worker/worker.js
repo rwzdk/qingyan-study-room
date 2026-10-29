@@ -1,3 +1,5 @@
+import { handleStudyCloud } from './study-cloud.js';
+
 const MAX_BODY_BYTES = 4096;
 const MAX_AUTHOR_NAME_BYTES = 64;
 const MAX_CONTENT_CHARS = 500;
@@ -31,8 +33,9 @@ const TTS_VOICES = new Set([
 
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'content-type',
+  'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
+  // 云端状态同步会带 Authorization 头，预检必须放行，否则浏览器直接拦截请求。
+  'access-control-allow-headers': 'authorization, content-type',
   'access-control-max-age': '86400',
 };
 
@@ -295,6 +298,10 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
+
+    // 自习室云端账号与数据（/api/auth/*、/api/state）
+    const cloudResponse = await handleStudyCloud(request, env, url);
+    if (cloudResponse) return cloudResponse;
 
     if (url.pathname === '/api/tts') {
       if (request.method !== 'POST') {
