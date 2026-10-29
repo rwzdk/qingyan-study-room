@@ -441,6 +441,7 @@ watch(
 
 onBeforeUnmount(() => {
   focusRoundActive.value = false;
+  cancelReminder();
   clearTimer();
   removeUnlockListener?.();
   document.removeEventListener('visibilitychange', onVisibility);

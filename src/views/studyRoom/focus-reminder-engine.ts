@@ -59,6 +59,47 @@ export function unlockReminderAudio() {
   }
 }
 
+/**
+ * 听不见的保活音：21Hz、增益 0.002，人耳和大多数扬声器都感知不到，
+ * 但足以让浏览器认为这个标签页"正在发声"，从而不去冻结它。
+ * 冻结会停掉音频时钟，排在时间轴上的结束提醒就永远不会响。
+ * 与环境音音量滑块无关——拉到 0 也不影响它。
+ */
+let keepAlive: { osc: OscillatorNode; gain: GainNode } | null = null;
+
+function startKeepAlive(context: AudioContext) {
+  if (keepAlive) return;
+  try {
+    const osc = context.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 21;
+    const gain = context.createGain();
+    gain.gain.value = 0.002;
+    osc.connect(gain);
+    gain.connect(context.destination);
+    osc.start();
+    keepAlive = { osc, gain };
+  } catch {
+    keepAlive = null;
+  }
+}
+
+function stopKeepAlive() {
+  if (!keepAlive) return;
+  try {
+    keepAlive.osc.stop();
+  } catch {
+    // 已停止。
+  }
+  try {
+    keepAlive.osc.disconnect();
+    keepAlive.gain.disconnect();
+  } catch {
+    // 已断开。
+  }
+  keepAlive = null;
+}
+
 function trackSource(source: AudioScheduledSourceNode) {
   armedSources.push(source);
 }
@@ -84,6 +125,7 @@ export function cancelReminder() {
   for (const source of armedSources) stopSource(source);
   armedSources = [];
   armed = false;
+  stopKeepAlive();
 }
 
 /** 本轮是否已经排过程序。 */
@@ -181,6 +223,7 @@ export function armReminder(
   const context = ensureContext();
   if (!context) return;
   armed = true;
+  startKeepAlive(context);
 
   let scheduled = false;
   const schedule = () => {
