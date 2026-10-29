@@ -22,7 +22,7 @@ import type { StudyRoomScene } from './study-room-scene';
 import { STUDY_ROOM_SCENES } from './study-room-scene';
 import { retrySync, useStudyRoomState, type SyncStatus } from './study-room-state-store';
 
-const GITHUB_REPO_URL = 'https://github.com/rwzdk/qingyan-study-room';
+const GITHUB_REPO_URL = 'https://github.com/rwzdk/qixin-study-room';
 
 const props = defineProps<{
   scene: StudyRoomScene;

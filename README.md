@@ -2,7 +2,7 @@
 
 一个面向学习者的沉浸式自习空间。它把 3D 小岛打卡、番茄专注、学习计划、阅读笔记和主页统计放进同一个界面，用雨林、雪日、星夜、海岸、麦田等自然场景帮助用户进入专注状态。
 
-**在线体验：** https://qingyan-study-room-j8vzdjdlheu.qoder.website
+**在线体验：** https://qixin-study-room-j8vzdjdlheu.qoder.website
 
 ![栖心自习室小岛](docs/screenshots/island.jpg)
 
