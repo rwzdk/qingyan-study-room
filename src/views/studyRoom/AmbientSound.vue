@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import IconifyIcon from '#/components/IconifyIcon.vue';
 
 import { createAmbientEngine, type AmbientEngine } from './ambient-audio';
+import { focusRoundActive } from './focus-session-signal';
 import { getStudyRoomSceneCopy, type StudyRoomScene } from './study-room-scene';
 
 const props = defineProps<{
@@ -61,9 +62,14 @@ watch(
   },
 );
 
-// 离开页面静音，回来恢复
+// 离开页面静音，回来恢复；但专注进行中不静音——正在发声的标签页不会被浏览器冻结，
+// 冻结会连带停掉音频时钟，结束提醒就永远不会响。
 function onVisibility() {
   if (document.hidden) {
+    if (focusRoundActive.value && volumeRef.value > 0) {
+      engine?.setVolume(volumeRef.value);
+      return;
+    }
     if (engine?.isRunning()) {
       engine.setVolume(0);
     }

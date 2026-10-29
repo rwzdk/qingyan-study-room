@@ -16,6 +16,7 @@ import {
   speakReminder,
   unlockReminderAudio,
 } from './focus-reminder-engine';
+import { focusRoundActive } from './focus-session-signal';
 import { loadReminderPrefs } from './focus-reminder-prefs';
 import { useStudyRoomState, scheduleSaveStudyRoom } from './study-room-state-store';
 
@@ -181,7 +182,7 @@ function armReminderForRound() {
     });
   }
   armReminder(expiresAt, prefs.sound, {
-    onDue: () => handleExpire(),
+    onDue: () => handleExpire(true),
     onSpeak: () => {
       if (!fireClaimed) return;
       const current = loadReminderPrefs();
@@ -203,9 +204,12 @@ function recordCompletedFocusSession(minutes: number) {
   scheduleSaveStudyRoom();
 }
 
-function handleExpire() {
+function handleExpire(fromAudio = false) {
   // 音频回调与主线程定时器可能同时到达，只处理一次。
   if (!isRunning.value) return;
+  // 从定时器进来说明音频那一路没走（典型是标签页被冻结后恢复），
+  // 这时排好的响铃还停在旧的音频时间上，必须立刻补响并把旧的排程撤掉。
+  if (!fromAudio) cancelReminder();
   const wasFocus = mode.value === 'focus';
   const key = `${sessionId}:${wasFocus ? 'focus' : 'break'}`;
   fireKey = key;
@@ -222,6 +226,10 @@ function handleExpire() {
   if (prefs.enabled && !hasArmedReminder() && prefs.sound !== 'none') {
     playReminderNow(prefs.sound);
   }
+  // 定时器兜底这条路没有音频回调，语音也要在这里补播。
+  if (!fromAudio && prefs.enabled && prefs.useVoice && wasFocus) {
+    if (speakNow(prefs)) spokenKey = key;
+  }
 
   if (wasFocus) {
     completed.value += 1;
@@ -233,6 +241,7 @@ function handleExpire() {
   mode.value = wasFocus ? 'break' : 'focus';
   remaining.value = (wasFocus ? props.breakMinutes : props.focusMinutes) * 60;
   isRunning.value = false;
+  focusRoundActive.value = false;
   expiresAt = null;
   firedAt = Date.now();
   firedMode = wasFocus ? 'focus' : 'break';
@@ -246,6 +255,7 @@ function start() {
   }
   expiresAt = Date.now() + remaining.value * 1000;
   isRunning.value = true;
+  focusRoundActive.value = true;
   fireClaimed = false;
   fireKey = '';
   spokenKey = '';
@@ -262,6 +272,7 @@ function pause() {
   }
   expiresAt = null;
   isRunning.value = false;
+  focusRoundActive.value = false;
   restoreTitle();
   persist();
   cancelReminder();
@@ -272,6 +283,7 @@ function reset() {
   sessionId = createSessionId();
   expiresAt = null;
   isRunning.value = false;
+  focusRoundActive.value = false;
   mode.value = 'focus';
   round.value = 1;
   completed.value = 0;
@@ -293,6 +305,7 @@ function skip() {
   }
   expiresAt = null;
   isRunning.value = false;
+  focusRoundActive.value = false;
   restoreTitle();
   persist();
   cancelReminder();
@@ -416,7 +429,7 @@ watch(
       }
       const next = secondsUntil(expiresAt);
       if (next <= 0) {
-        handleExpire();
+        handleExpire(false);
         return;
       }
       if (next !== remaining.value) {
@@ -427,6 +440,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  focusRoundActive.value = false;
   clearTimer();
   removeUnlockListener?.();
   document.removeEventListener('visibilitychange', onVisibility);

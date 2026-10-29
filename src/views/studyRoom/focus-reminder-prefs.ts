@@ -20,7 +20,7 @@ export interface FocusReminderPrefs {
 export const REMINDER_STORAGE_KEY = 'qingyan-study-room:focus-reminder:v1';
 export const REMINDER_TEXT_MAX = 120;
 export const DEFAULT_REMINDER_TEXT = '专注完成啦，起来喝口水，让眼睛看看远处吧～';
-export const DEFAULT_CLOUD_VOICE = 'Momo';
+export const DEFAULT_CLOUD_VOICE = 'Maia';
 
 export const DEFAULT_FOCUS_REMINDER: FocusReminderPrefs = {
   enabled: true,
@@ -100,8 +100,19 @@ export function normalizeReminderPrefs(raw: unknown): FocusReminderPrefs {
   };
 }
 
+/** 早期版本的默认音色是茉兔；只迁移一次，之后用户自己选的音色不再覆盖。 */
+const VOICE_DEFAULT_MIGRATED_KEY = 'qingyan-study-room:focus-reminder-voice:v2';
+
 export function loadReminderPrefs(): FocusReminderPrefs {
-  return normalizeReminderPrefs(readJson<unknown>(REMINDER_STORAGE_KEY, null));
+  const prefs = normalizeReminderPrefs(readJson<unknown>(REMINDER_STORAGE_KEY, null));
+  if (!readJson<boolean>(VOICE_DEFAULT_MIGRATED_KEY, false)) {
+    if (prefs.cloudVoice === 'Momo') {
+      prefs.cloudVoice = DEFAULT_CLOUD_VOICE;
+      writeJson(REMINDER_STORAGE_KEY, prefs);
+    }
+    writeJson(VOICE_DEFAULT_MIGRATED_KEY, true);
+  }
+  return prefs;
 }
 
 export function saveReminderPrefs(prefs: FocusReminderPrefs) {
