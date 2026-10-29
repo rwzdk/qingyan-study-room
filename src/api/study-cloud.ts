@@ -10,8 +10,9 @@ const BASE = (
 ).replace(/\/+$/, '');
 
 const SESSION_KEY = 'qingyan-study-room:cloud-session:v1';
-const REQUEST_TIMEOUT = 18_000;
-const RETRY_DELAYS = [600, 1600];
+// 这条链路会「挂住」而不是立刻失败，所以单次超时压短、用更多次重试换总耗时。
+const REQUEST_TIMEOUT = 6_000;
+const RETRY_DELAYS = [300, 700, 1400];
 
 export interface CloudSession {
   token: string;
