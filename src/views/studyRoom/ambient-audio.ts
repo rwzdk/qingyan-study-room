@@ -7,12 +7,12 @@
  *  - 原 snow 音频是 40s 循环，接缝处会有可闻的咔哒。
  * 合成方案无文件加载、无缝循环、可按场景调参。
  *
- * 雨声的做法（经典且自然的组合）：
- *  1. 白噪声 → 低频搁架衰减 → 得到'雨幕'底噪
- *  2. 带通滤波 + 慢速 LFO 调制增益 → '雨滴打在树叶/窗户'的沙沙起伏
- *  3. 少量随机高频短促脉冲 → 近处雨滴细节
- *  4. 极轻的粉红噪声低频层 → 房间/远处的空气感
- * 雪声则是几乎全频带的低通噪声 + 极缓慢起伏，安静、绵密。
+ * 自然感主要来自三件事：
+ *  1. 立体声底噪：左右声道用两份独立噪声，声场自然铺开，不再是居中的一坨。
+ *  2. 空间：每个场景共用一条干湿并行的混响总线（卷积核是生成的指数衰减噪声），
+ *     雨滴、鸟鸣、浪花这类瞬态走湿声，才有"在户外"的距离感。
+ *  3. 不规则事件：雨滴、虫鸣、鸟叫、浪涌都用随机间隔调度，并带随机音高与声像，
+ *     避免 LFO 那种能被听出来的周期。
  */
 
 import type { StudyRoomScene } from './study-room-scene';
@@ -23,13 +23,15 @@ interface LayerHandle {
   stop: () => void;
 }
 
-/** 生成指定长度的白噪声缓冲（循环播放用，本身即无接缝）。 */
-function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
+/** 白噪声缓冲。双声道各自独立随机，直接就是自然声场宽度。 */
+function makeNoiseBuffer(ctx: AudioContext, seconds: number, channels = 2): AudioBuffer {
   const length = Math.floor(ctx.sampleRate * seconds);
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < length; i += 1) {
-    data[i] = Math.random() * 2 - 1;
+  const buffer = ctx.createBuffer(channels, length, ctx.sampleRate);
+  for (let channel = 0; channel < channels; channel += 1) {
+    const data = buffer.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) {
+      data[i] = Math.random() * 2 - 1;
+    }
   }
   return buffer;
 }
@@ -38,525 +40,906 @@ function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
  * 生成"粉红化"噪声缓冲：用简单的 Voss-McCartney 近似，
  * 比纯白噪声更接近雨声/风声的自然频谱（低频更厚、高频更柔）。
  */
-function createPinkNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
+function makePinkBuffer(ctx: AudioContext, seconds: number, channels = 2): AudioBuffer {
   const length = Math.floor(ctx.sampleRate * seconds);
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  let b0 = 0;
-  let b1 = 0;
-  let b2 = 0;
-  let b3 = 0;
-  let b4 = 0;
-  let b5 = 0;
-  let b6 = 0;
-  for (let i = 0; i < length; i += 1) {
-    const white = Math.random() * 2 - 1;
-    b0 = 0.99886 * b0 + white * 0.0555179;
-    b1 = 0.99332 * b1 + white * 0.0750759;
-    b2 = 0.969 * b2 + white * 0.153852;
-    b3 = 0.8665 * b3 + white * 0.3104856;
-    b4 = 0.55 * b4 + white * 0.5329522;
-    b5 = -0.7616 * b5 - white * 0.016898;
-    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
-    b6 = white * 0.115926;
+  const buffer = ctx.createBuffer(channels, length, ctx.sampleRate);
+  for (let channel = 0; channel < channels; channel += 1) {
+    const data = buffer.getChannelData(channel);
+    let b0 = 0;
+    let b1 = 0;
+    let b2 = 0;
+    let b3 = 0;
+    let b4 = 0;
+    let b5 = 0;
+    let b6 = 0;
+    for (let i = 0; i < length; i += 1) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179;
+      b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.969 * b2 + white * 0.153852;
+      b3 = 0.8665 * b3 + white * 0.3104856;
+      b4 = 0.55 * b4 + white * 0.5329522;
+      b5 = -0.7616 * b5 - white * 0.016898;
+      data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+      b6 = white * 0.115926;
+    }
   }
   return buffer;
 }
 
-/** 带 LFO 的增益调制，让噪声有"呼吸"的起伏，避免像空调底噪。 */
-function makeLfoGain(
+const NOISE = new WeakMap<AudioContext, AudioBuffer>();
+const PINK = new WeakMap<AudioContext, AudioBuffer>();
+
+/** 每类噪声只生成一次并复用，切场景时不用重新算 4~7 秒的缓冲。 */
+function noiseBuffer(ctx: AudioContext): AudioBuffer {
+  let buffer = NOISE.get(ctx);
+  if (!buffer) {
+    buffer = makeNoiseBuffer(ctx, 4);
+    NOISE.set(ctx, buffer);
+  }
+  return buffer;
+}
+
+function pinkBuffer(ctx: AudioContext): AudioBuffer {
+  let buffer = PINK.get(ctx);
+  if (!buffer) {
+    buffer = makePinkBuffer(ctx, 7);
+    PINK.set(ctx, buffer);
+  }
+  return buffer;
+}
+
+function randomBetween(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+/** 带阻尼的随机游走：比 LFO 更像真实的风、雨势、蝉鸣起伏。 */
+function randomWalk(
   ctx: AudioContext,
-  target: AudioParam,
+  param: AudioParam,
   base: number,
-  depth: number,
-  rate: number,
-  phase = 0,
-): OscillatorNode {
-  const lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = rate;
-  const lfoGain = ctx.createGain();
-  lfoGain.gain.value = depth;
-  target.value = base;
-  lfo.connect(lfoGain);
-  lfoGain.connect(target);
-  // 相位错开：用 detune 无法直接控相位，改用 start 延时近似
-  if (phase > 0) {
-    lfo.start(ctx.currentTime + phase);
-  } else {
-    lfo.start();
-  }
-  return lfo;
-}
-
-function buildRain(ctx: AudioContext, out: GainNode): LayerHandle {
-  const stops: Array<() => void> = [];
-
-  // — 雨幕底噪：白噪声经低通，裁掉刺耳高频，并切掉过闷的低频 —
-  const bedSrc = ctx.createBufferSource();
-  bedSrc.buffer = createNoiseBuffer(ctx, 4);
-  bedSrc.loop = true;
-  const bedHighpass = ctx.createBiquadFilter();
-  bedHighpass.type = 'highpass';
-  bedHighpass.frequency.value = 180;
-  const bedFilter = ctx.createBiquadFilter();
-  bedFilter.type = 'lowpass';
-  bedFilter.frequency.value = 5200;
-  bedFilter.Q.value = 0.6;
-  const bedShelf = ctx.createBiquadFilter();
-  bedShelf.type = 'highshelf';
-  bedShelf.frequency.value = 2600;
-  bedShelf.gain.value = -7;
-  const bedGain = ctx.createGain();
-  bedGain.gain.value = 0.3;
-  bedSrc.connect(bedHighpass);
-  bedHighpass.connect(bedFilter);
-  bedFilter.connect(bedShelf);
-  bedShelf.connect(bedGain);
-  bedGain.connect(out);
-  bedSrc.start();
-  stops.push(() => bedSrc.stop());
-
-  // — 雨的"沙沙"起伏：带通噪声 + 慢速 LFO，模拟雨势变化 —
-  const rustleSrc = ctx.createBufferSource();
-  rustleSrc.buffer = createNoiseBuffer(ctx, 5);
-  rustleSrc.loop = true;
-  const rustleBand = ctx.createBiquadFilter();
-  rustleBand.type = 'bandpass';
-  rustleBand.frequency.value = 1600;
-  rustleBand.Q.value = 0.85;
-  const rustleGain = ctx.createGain();
-  rustleGain.gain.value = 0.2;
-  rustleSrc.connect(rustleBand);
-  rustleBand.connect(rustleGain);
-  rustleGain.connect(out);
-  rustleSrc.start();
-  stops.push(() => rustleSrc.stop());
-
-  // 两个不同速率的 LFO 叠加，起伏不会呈周期性
-  const lfo1 = makeLfoGain(ctx, rustleGain.gain, 0.2, 0.1, 0.11);
-  const lfo2 = makeLfoGain(ctx, rustleGain.gain, 0.2, 0.06, 0.043, 0.7);
-  stops.push(() => lfo1.stop());
-  stops.push(() => lfo2.stop());
-
-  // 带通中心频率也做缓慢扫动，让"沙沙"的音色有变化
-  const centerLfo = ctx.createOscillator();
-  centerLfo.type = 'sine';
-  centerLfo.frequency.value = 0.067;
-  const centerGain = ctx.createGain();
-  centerGain.gain.value = 380;
-  centerLfo.connect(centerGain);
-  centerGain.connect(rustleBand.frequency);
-  centerLfo.start();
-  stops.push(() => centerLfo.stop());
-
-  // — 近处雨滴：随机短促高频脉冲 —
-  const dropBuf = createNoiseBuffer(ctx, 0.08);
-  let dropTimer = 0;
-  const scheduleDrops = () => {
-    const now = ctx.currentTime;
-    const count = 3;
-    for (let i = 0; i < count; i += 1) {
-      const src = ctx.createBufferSource();
-      src.buffer = dropBuf;
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.value = 2600 + Math.random() * 3400;
-      bp.Q.value = 6 + Math.random() * 8;
-      const g = ctx.createGain();
-      const t = now + Math.random() * 0.45;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.035 + Math.random() * 0.05, t + 0.004);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07 + Math.random() * 0.1);
-      src.connect(bp);
-      bp.connect(g);
-      g.connect(out);
-      src.start(t);
-      src.stop(t + 0.25);
-    }
-    dropTimer = window.setTimeout(scheduleDrops, 320 + Math.random() * 380);
-  };
-  scheduleDrops();
-  stops.push(() => window.clearTimeout(dropTimer));
-
-  // — 极轻的低频空气感（音量压得很低，避免 80Hz 频段发闷） —
-  const pinkSrc = ctx.createBufferSource();
-  pinkSrc.buffer = createPinkNoiseBuffer(ctx, 6);
-  pinkSrc.loop = true;
-  const pinkHighpass = ctx.createBiquadFilter();
-  pinkHighpass.type = 'highpass';
-  pinkHighpass.frequency.value = 150;
-  const pinkFilter = ctx.createBiquadFilter();
-  pinkFilter.type = 'lowpass';
-  pinkFilter.frequency.value = 300;
-  const pinkGain = ctx.createGain();
-  pinkGain.gain.value = 0.06;
-  pinkSrc.connect(pinkHighpass);
-  pinkHighpass.connect(pinkFilter);
-  pinkFilter.connect(pinkGain);
-  pinkGain.connect(out);
-  pinkSrc.start();
-  stops.push(() => pinkSrc.stop());
-
-  return { stop: () => stops.forEach((fn) => fn()) };
-}
-
-function buildSnow(ctx: AudioContext, out: GainNode): LayerHandle {
-  const stops: Array<() => void> = [];
-
-  // 雪是"安静但清亮"的：中高频噪声 + 极缓慢起伏。
-  // 低切到 220Hz 去掉闷闷的低频轰鸣，高切 3.2kHz 保留轻柔的"沙"感。
-  const bedSrc = ctx.createBufferSource();
-  bedSrc.buffer = createPinkNoiseBuffer(ctx, 7);
-  bedSrc.loop = true;
-  const lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 3200;
-  lp.Q.value = 0.4;
-  const hp = ctx.createBiquadFilter();
-  hp.type = 'highpass';
-  hp.frequency.value = 220;
-  const bedGain = ctx.createGain();
-  bedGain.gain.value = 0.26;
-  bedSrc.connect(hp);
-  hp.connect(lp);
-  lp.connect(bedGain);
-  bedGain.connect(out);
-  bedSrc.start();
-  stops.push(() => bedSrc.stop());
-
-  const lfo1 = makeLfoGain(ctx, bedGain.gain, 0.26, 0.07, 0.055);
-  const lfo2 = makeLfoGain(ctx, bedGain.gain, 0.26, 0.04, 0.021, 1.1);
-  stops.push(() => lfo1.stop());
-  stops.push(() => lfo2.stop());
-
-  // 高频"落雪"纹理，让声音通透不闷
-  const airSrc = ctx.createBufferSource();
-  airSrc.buffer = createNoiseBuffer(ctx, 4);
-  airSrc.loop = true;
-  const airBp = ctx.createBiquadFilter();
-  airBp.type = 'bandpass';
-  airBp.frequency.value = 6200;
-  airBp.Q.value = 0.7;
-  const airGain = ctx.createGain();
-  airGain.gain.value = 0.05;
-  airSrc.connect(airBp);
-  airBp.connect(airGain);
-  airGain.connect(out);
-  airSrc.start();
-  stops.push(() => airSrc.stop());
-
-  return { stop: () => stops.forEach((fn) => fn()) };
-}
-
-interface NoiseLayerOptions {
-  pink?: boolean;
-  seconds?: number;
-  gain: number;
-  highpass?: number;
-  lowpass?: number;
-  bandpass?: { frequency: number; q: number };
-  lfo?: { base: number; depth: number; rate: number; phase?: number };
-  am?: { rate: number; depth: number };
-}
-
-function buildNoiseLayer(
-  ctx: AudioContext,
-  out: GainNode,
-  options: NoiseLayerOptions,
-): LayerHandle {
-  const stops: Array<() => void> = [];
-  const source = ctx.createBufferSource();
-  source.buffer = options.pink
-    ? createPinkNoiseBuffer(ctx, options.seconds ?? 7)
-    : createNoiseBuffer(ctx, options.seconds ?? 5);
-  source.loop = true;
-
-  let node: AudioNode = source;
-  if (options.highpass) {
-    const highpass = ctx.createBiquadFilter();
-    highpass.type = 'highpass';
-    highpass.frequency.value = options.highpass;
-    node.connect(highpass);
-    node = highpass;
-  }
-  if (options.lowpass) {
-    const lowpass = ctx.createBiquadFilter();
-    lowpass.type = 'lowpass';
-    lowpass.frequency.value = options.lowpass;
-    lowpass.Q.value = 0.5;
-    node.connect(lowpass);
-    node = lowpass;
-  }
-  if (options.bandpass) {
-    const bandpass = ctx.createBiquadFilter();
-    bandpass.type = 'bandpass';
-    bandpass.frequency.value = options.bandpass.frequency;
-    bandpass.Q.value = options.bandpass.q;
-    node.connect(bandpass);
-    node = bandpass;
-  }
-
-  const gain = ctx.createGain();
-  gain.gain.value = options.gain;
-  node.connect(gain);
-  gain.connect(out);
-  source.start();
-  stops.push(() => source.stop());
-
-  if (options.lfo) {
-    const lfo = makeLfoGain(
-      ctx,
-      gain.gain,
-      options.lfo.base,
-      options.lfo.depth,
-      options.lfo.rate,
-      options.lfo.phase ?? 0,
-    );
-    stops.push(() => lfo.stop());
-  }
-  if (options.am) {
-    const am = makeLfoGain(
-      ctx,
-      gain.gain,
-      options.gain,
-      options.am.depth,
-      options.am.rate,
-    );
-    stops.push(() => am.stop());
-  }
-
-  return { stop: () => stops.forEach((fn) => fn()) };
-}
-
-interface ChirpOptions {
-  minDelay: number;
-  maxDelay: number;
-  minFreq: number;
-  maxFreq: number;
-  duration: number;
-  gain: number;
-  pulsesMin: number;
-  pulsesMax: number;
-  glide?: number;
-}
-
-/** 短促的鸟鸣/虫鸣/水滴：用定时器随机触发，返回清理函数。 */
-function scheduleChirps(
-  ctx: AudioContext,
-  out: GainNode,
-  options: ChirpOptions,
+  range: number,
+  minWait = 1400,
+  maxWait = 4200,
+  timeConstant = 1.1,
 ): () => void {
-  let timer = 0;
   let stopped = false;
-
-  const pulse = (start: number, frequency: number): void => {
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(frequency, start);
-    if (options.glide) {
-      osc.frequency.exponentialRampToValueAtTime(
-        Math.max(180, frequency * options.glide),
-        start + options.duration,
-      );
-    }
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(options.gain, start + 0.01);
-    gain.gain.exponentialRampToValueAtTime(
-      0.0001,
-      start + options.duration,
-    );
-    osc.connect(gain);
-    gain.connect(out);
-    osc.start(start);
-    osc.stop(start + options.duration + 0.03);
-  };
-
-  const schedule = (): void => {
+  let timer = 0;
+  const step = (): void => {
     if (stopped) return;
-    const now = ctx.currentTime;
-    const count =
-      options.pulsesMin +
-      Math.floor(
-        Math.random() * (options.pulsesMax - options.pulsesMin + 1),
-      );
-    for (let i = 0; i < count; i += 1) {
-      pulse(
-        now + i * 0.11,
-        options.minFreq + Math.random() * (options.maxFreq - options.minFreq),
-      );
-    }
-    timer = window.setTimeout(
-      schedule,
-      options.minDelay + Math.random() * (options.maxDelay - options.minDelay),
-    );
+    const target = Math.max(0, base + (Math.random() * 2 - 1) * range);
+    param.setTargetAtTime(target, ctx.currentTime, timeConstant);
+    timer = window.setTimeout(step, randomBetween(minWait, maxWait));
   };
-
-  timer = window.setTimeout(schedule, 500 + Math.random() * 900);
+  timer = window.setTimeout(step, 300);
   return () => {
     stopped = true;
     window.clearTimeout(timer);
   };
 }
 
-function buildCloud(ctx: AudioContext, out: GainNode): LayerHandle {
-  return buildNoiseLayer(ctx, out, {
-    pink: true,
-    highpass: 120,
-    lowpass: 450,
-    gain: 0.12,
-    lfo: { base: 0.12, depth: 0.035, rate: 0.04 },
+/** 随机间隔事件调度，返回清理函数。 */
+function everyRandom(minDelay: number, maxDelay: number, run: () => void, first = 400): () => void {
+  let stopped = false;
+  let timer = 0;
+  const tick = (): void => {
+    if (stopped) return;
+    run();
+    timer = window.setTimeout(tick, randomBetween(minDelay, maxDelay));
+  };
+  timer = window.setTimeout(tick, first);
+  return () => {
+    stopped = true;
+    window.clearTimeout(timer);
+  };
+}
+
+/** 指数衰减噪声脉冲，用作混响核，给所有瞬态一个"户外空间"。 */
+function makeImpulse(ctx: AudioContext, seconds: number, decay: number): AudioBuffer {
+  const length = Math.floor(ctx.sampleRate * seconds);
+  const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+  for (let channel = 0; channel < 2; channel += 1) {
+    const data = buffer.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) {
+      const t = i / length;
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
+    }
+  }
+  return buffer;
+}
+
+interface Space {
+  /** 瞬态声源接到这里，会同时走干声与混响。 */
+  input: GainNode;
+  stop: () => void;
+}
+
+function createSpace(ctx: AudioContext, out: GainNode, wet: number): Space {
+  const input = ctx.createGain();
+  input.gain.value = 1;
+  input.connect(out);
+
+  const convolver = ctx.createConvolver();
+  convolver.buffer = makeImpulse(ctx, 2.4, 2.8);
+  const wetGain = ctx.createGain();
+  wetGain.gain.value = wet;
+  input.connect(convolver);
+  convolver.connect(wetGain);
+  wetGain.connect(out);
+
+  return {
+    input,
+    stop: () => {
+      try {
+        input.disconnect();
+        convolver.disconnect();
+        wetGain.disconnect();
+      } catch {
+        // 已断开时忽略。
+      }
+    },
+  };
+}
+
+function panned(ctx: AudioContext, pan: number): StereoPannerNode | GainNode {
+  if (typeof ctx.createStereoPanner === 'function') {
+    const node = ctx.createStereoPanner();
+    node.pan.value = pan;
+    return node;
+  }
+  return ctx.createGain();
+}
+
+interface BedOptions {
+  pink?: boolean;
+  gain: number;
+  highpass?: number;
+  lowpass?: number;
+  bandpass?: { frequency: number; q: number } | null;
+  walk?: { range: number; minWait?: number; maxWait?: number } | null;
+  am?: { rate: number; depth: number } | null;
+}
+
+/** 一条立体声底噪：噪声 → 滤波 → 增益，可选随机游走与 AM。 */
+function addBed(ctx: AudioContext, dest: AudioNode, options: BedOptions): () => void {
+  const stops: Array<() => void> = [];
+  const source = ctx.createBufferSource();
+  source.buffer = options.pink ? pinkBuffer(ctx) : noiseBuffer(ctx);
+  source.loop = true;
+
+  let node: AudioNode = source;
+  if (options.highpass) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = options.highpass;
+    filter.Q.value = 0.6;
+    node.connect(filter);
+    node = filter;
+  }
+  if (options.lowpass) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = options.lowpass;
+    filter.Q.value = 0.5;
+    node.connect(filter);
+    node = filter;
+  }
+  if (options.bandpass) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = options.bandpass.frequency;
+    filter.Q.value = options.bandpass.q;
+    node.connect(filter);
+    node = filter;
+  }
+
+  const gain = ctx.createGain();
+  gain.gain.value = options.gain;
+  node.connect(gain);
+  gain.connect(dest);
+  source.start();
+  stops.push(() => {
+    try {
+      source.stop();
+    } catch {
+      // 已停止。
+    }
   });
+
+  if (options.walk) {
+    stops.push(
+      randomWalk(
+        ctx,
+        gain.gain,
+        options.gain,
+        options.walk.range,
+        options.walk.minWait,
+        options.walk.maxWait,
+      ),
+    );
+  }
+  if (options.am) {
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = options.am.rate;
+    const depth = ctx.createGain();
+    depth.gain.value = options.am.depth;
+    lfo.connect(depth);
+    depth.connect(gain.gain);
+    lfo.start();
+    stops.push(() => lfo.stop());
+  }
+
+  return () => stops.forEach((fn) => fn());
+}
+
+/** 短噪声脉冲（雨滴、沙沙、水花）：带通 + 快速衰减。 */
+function noiseBurst(
+  ctx: AudioContext,
+  dest: AudioNode,
+  at: number,
+  options: {
+    frequency: number;
+    q: number;
+    peak: number;
+    decay: number;
+    pan?: number;
+    attack?: number;
+  },
+): void {
+  const source = ctx.createBufferSource();
+  source.buffer = noiseBuffer(ctx);
+  source.loop = false;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = options.frequency;
+  filter.Q.value = options.q;
+  const gain = ctx.createGain();
+  const attack = options.attack ?? 0.004;
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.linearRampToValueAtTime(options.peak, at + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + options.decay);
+  const pan = panned(ctx, options.pan ?? 0);
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(pan);
+  pan.connect(dest);
+  source.start(at, Math.random() * 2, options.decay + 0.05);
+  source.stop(at + options.decay + 0.08);
+}
+
+/** 单个正弦音符（虫鸣脉冲、水泡、鸟叫），支持起止频率、颤音与声像。 */
+function tone(
+  ctx: AudioContext,
+  dest: AudioNode,
+  at: number,
+  options: {
+    from: number;
+    to?: number;
+    duration: number;
+    peak: number;
+    pan?: number;
+    type?: OscillatorType;
+    attack?: number;
+    vibrato?: { rate: number; depth: number } | null;
+  },
+): void {
+  const osc = ctx.createOscillator();
+  osc.type = options.type ?? 'sine';
+  osc.frequency.setValueAtTime(options.from, at);
+  if (options.to && options.to !== options.from) {
+    osc.frequency.exponentialRampToValueAtTime(Math.max(60, options.to), at + options.duration);
+  }
+  const gain = ctx.createGain();
+  const attack = options.attack ?? 0.006;
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.linearRampToValueAtTime(options.peak, at + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + options.duration);
+  const pan = panned(ctx, options.pan ?? 0);
+  osc.connect(gain);
+  gain.connect(pan);
+  pan.connect(dest);
+
+  if (options.vibrato) {
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = options.vibrato.rate;
+    const depth = ctx.createGain();
+    depth.gain.value = options.vibrato.depth;
+    lfo.connect(depth);
+    depth.connect(osc.frequency);
+    lfo.start(at);
+    lfo.stop(at + options.duration + 0.05);
+  }
+
+  osc.start(at);
+  osc.stop(at + options.duration + 0.06);
+}
+
+/** 雨滴：高频瞬态，密度与音高都随机。 */
+function rainDrops(ctx: AudioContext, dest: AudioNode): () => void {
+  return everyRandom(90, 260, () => {
+    const now = ctx.currentTime;
+    const count = Math.random() < 0.3 ? 2 : 1;
+    for (let i = 0; i < count; i += 1) {
+      noiseBurst(ctx, dest, now + Math.random() * 0.12, {
+        frequency: randomBetween(2200, 6400),
+        q: randomBetween(7, 18),
+        peak: randomBetween(0.018, 0.05),
+        decay: randomBetween(0.05, 0.16),
+        pan: randomBetween(-0.85, 0.85),
+      });
+    }
+  }, 120);
+}
+
+/** 蟋蟀：一"串"约 30Hz 的脉冲，比连续正弦更接近真实虫鸣。 */
+function cricketChirp(
+  ctx: AudioContext,
+  dest: AudioNode,
+  at: number,
+  frequency: number,
+  pan: number,
+): void {
+  const pulses = 3 + Math.floor(Math.random() * 3);
+  const spacing = randomBetween(0.026, 0.034);
+  for (let i = 0; i < pulses; i += 1) {
+    tone(ctx, dest, at + i * spacing, {
+      from: frequency,
+      duration: 0.022,
+      peak: 0.013,
+      pan,
+      attack: 0.004,
+    });
+  }
+}
+
+/** 鸟鸣：三四种短句，带滑音与颤音，远近各一层。 */
+function birdCall(ctx: AudioContext, dest: AudioNode, pan: number, distant: boolean): void {
+  const now = ctx.currentTime + Math.random() * 0.2;
+  const notes = 2 + Math.floor(Math.random() * 3);
+  const base = distant ? randomBetween(2000, 2900) : randomBetween(2500, 3600);
+  const peak = distant ? 0.008 : 0.018;
+  const shape = Math.random();
+  for (let i = 0; i < notes; i += 1) {
+    const at = now + i * randomBetween(0.09, 0.16);
+    if (shape < 0.45) {
+      // 上扬短哨
+      tone(ctx, dest, at, {
+        from: base,
+        to: base * randomBetween(1.18, 1.45),
+        duration: randomBetween(0.07, 0.12),
+        peak,
+        pan,
+        vibrato: { rate: randomBetween(18, 30), depth: randomBetween(40, 120) },
+      });
+    } else if (shape < 0.8) {
+      // 下滑滑音
+      tone(ctx, dest, at, {
+        from: base * 1.3,
+        to: base * 0.86,
+        duration: randomBetween(0.1, 0.18),
+        peak: peak * 0.9,
+        pan,
+      });
+    } else {
+      // 两声短句
+      tone(ctx, dest, at, { from: base * 0.7, duration: 0.16, peak, pan });
+      tone(ctx, dest, at + 0.2, { from: base * 0.62, duration: 0.2, peak: peak * 0.8, pan });
+    }
+  }
+}
+
+function buildRain(ctx: AudioContext, out: GainNode): LayerHandle {
+  const space = createSpace(ctx, out, 0.3);
+  const stops: Array<() => void> = [space.stop];
+
+  // 雨幕：立体声白噪 → 切掉刺耳高频与过闷低频
+  stops.push(
+    addBed(ctx, space.input, {
+      gain: 0.26,
+      highpass: 170,
+      lowpass: 5200,
+      walk: { range: 0.07, minWait: 1800, maxWait: 5200 },
+    }),
+  );
+  // 雨的"沙沙"纹理，中心频率与音量都在缓慢游走
+  stops.push(
+    addBed(ctx, space.input, {
+      bandpass: { frequency: 1700, q: 0.8 },
+      gain: 0.1,
+      walk: { range: 0.045, minWait: 1200, maxWait: 3600 },
+    }),
+  );
+  // 远处雨声的空气感
+  stops.push(
+    addBed(ctx, out, {
+      pink: true,
+      gain: 0.06,
+      highpass: 150,
+      lowpass: 300,
+      walk: { range: 0.02, minWait: 3000, maxWait: 7000 },
+    }),
+  );
+
+  stops.push(rainDrops(ctx, space.input));
+
+  // 很偶尔的远雷：低频噪声缓起缓落
+  stops.push(
+    everyRandom(70000, 150000, () => {
+      const now = ctx.currentTime;
+      const source = ctx.createBufferSource();
+      source.buffer = pinkBuffer(ctx);
+      source.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 180;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.16, now + randomBetween(1.6, 3.2));
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + randomBetween(5, 8));
+      const pan = panned(ctx, randomBetween(-0.5, 0.5));
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(pan);
+      pan.connect(space.input);
+      source.start(now);
+      source.stop(now + 9);
+    }, 20000),
+  );
+
+  return { stop: () => stops.forEach((fn) => fn()) };
+}
+
+function buildSnow(ctx: AudioContext, out: GainNode): LayerHandle {
+  const space = createSpace(ctx, out, 0.2);
+  const stops: Array<() => void> = [space.stop];
+
+  stops.push(
+    addBed(ctx, space.input, {
+      pink: true,
+      gain: 0.2,
+      highpass: 210,
+      lowpass: 3000,
+      walk: { range: 0.055, minWait: 2400, maxWait: 6400 },
+    }),
+  );
+  stops.push(
+    addBed(ctx, out, {
+      gain: 0.05,
+      bandpass: { frequency: 6400, q: 0.8 },
+      walk: { range: 0.02, minWait: 1800, maxWait: 4200 },
+    }),
+  );
+
+  // 偶尔一阵风扫过：带通中心频率扫动 + 慢包络
+  stops.push(
+    everyRandom(12000, 26000, () => {
+      const now = ctx.currentTime;
+      const source = ctx.createBufferSource();
+      source.buffer = noiseBuffer(ctx);
+      source.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.value = 0.6;
+      filter.frequency.setValueAtTime(320, now);
+      filter.frequency.linearRampToValueAtTime(900, now + 2.4);
+      filter.frequency.linearRampToValueAtTime(380, now + 5);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.05, now + 2);
+      gain.gain.linearRampToValueAtTime(0.0001, now + 5.2);
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(out);
+      source.start(now);
+      source.stop(now + 5.6);
+    }, 6000),
+  );
+
+  return { stop: () => stops.forEach((fn) => fn()) };
+}
+
+function buildCloud(ctx: AudioContext, out: GainNode): LayerHandle {
+  const space = createSpace(ctx, out, 0.18);
+  const stops: Array<() => void> = [space.stop];
+  stops.push(
+    addBed(ctx, space.input, {
+      pink: true,
+      gain: 0.13,
+      highpass: 110,
+      lowpass: 480,
+      walk: { range: 0.04, minWait: 3000, maxWait: 8000 },
+    }),
+  );
+  stops.push(
+    addBed(ctx, out, {
+      gain: 0.03,
+      bandpass: { frequency: 1200, q: 0.5 },
+      walk: { range: 0.012, minWait: 4000, maxWait: 9000 },
+    }),
+  );
+  // 高空的风：很轻的一层，让"云海"有空气流动感
+  stops.push(
+    addBed(ctx, out, {
+      gain: 0.016,
+      bandpass: { frequency: 1800, q: 0.7 },
+      walk: { range: 0.008, minWait: 5000, maxWait: 11000 },
+    }),
+  );
+  // 偶尔一阵缓慢的风涌
+  stops.push(
+    everyRandom(14000, 30000, () => {
+      const now = ctx.currentTime;
+      const source = ctx.createBufferSource();
+      source.buffer = noiseBuffer(ctx);
+      source.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.value = 0.6;
+      filter.frequency.setValueAtTime(420, now);
+      filter.frequency.linearRampToValueAtTime(880, now + 3.2);
+      filter.frequency.linearRampToValueAtTime(460, now + 7);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.03, now + 2.6);
+      gain.gain.linearRampToValueAtTime(0.0001, now + 7.2);
+      const pan = panned(ctx, randomBetween(-0.4, 0.4));
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(pan);
+      pan.connect(space.input);
+      source.start(now);
+      source.stop(now + 7.6);
+    }, 8000),
+  );
+  return { stop: () => stops.forEach((fn) => fn()) };
 }
 
 function buildStarry(ctx: AudioContext, out: GainNode): LayerHandle {
-  const wind = buildNoiseLayer(ctx, out, {
-    pink: true,
-    highpass: 180,
-    lowpass: 900,
-    gain: 0.12,
-    lfo: { base: 0.12, depth: 0.03, rate: 0.04 },
-  });
-  const crickets = scheduleChirps(ctx, out, {
-    minDelay: 1200,
-    maxDelay: 3400,
-    minFreq: 4200,
-    maxFreq: 5400,
-    duration: 0.04,
-    gain: 0.012,
-    pulsesMin: 2,
-    pulsesMax: 4,
-  });
-  return {
-    stop: () => {
-      wind.stop();
-      crickets();
-    },
-  };
+  const space = createSpace(ctx, out, 0.26);
+  const stops: Array<() => void> = [space.stop];
+
+  stops.push(
+    addBed(ctx, space.input, {
+      pink: true,
+      gain: 0.09,
+      highpass: 160,
+      lowpass: 460,
+      walk: { range: 0.025, minWait: 3000, maxWait: 7000 },
+    }),
+  );
+
+  // 三只蟋蟀：音高、声像、节奏各不相同
+  const crickets = [
+    { frequency: 4250, pan: -0.62, minDelay: 900, maxDelay: 2400 },
+    { frequency: 4680, pan: 0.08, minDelay: 1300, maxDelay: 3200 },
+    { frequency: 5150, pan: 0.58, minDelay: 1800, maxDelay: 4200 },
+  ];
+  for (const cricket of crickets) {
+    stops.push(
+      everyRandom(
+        cricket.minDelay,
+        cricket.maxDelay,
+        () => {
+          cricketChirp(
+            ctx,
+            space.input,
+            ctx.currentTime + Math.random() * 0.1,
+            cricket.frequency,
+            cricket.pan,
+          );
+        },
+        randomBetween(500, 3000),
+      ),
+    );
+  }
+
+  return { stop: () => stops.forEach((fn) => fn()) };
 }
 
 function buildCoast(ctx: AudioContext, out: GainNode): LayerHandle {
-  const swell = buildNoiseLayer(ctx, out, {
-    pink: true,
-    highpass: 100,
-    lowpass: 780,
-    gain: 0.24,
-    lfo: { base: 0.24, depth: 0.1, rate: 0.07 },
-  });
-  const foam = buildNoiseLayer(ctx, out, {
-    bandpass: { frequency: 1550, q: 0.7 },
-    gain: 0.06,
-    lfo: { base: 0.06, depth: 0.03, rate: 0.13, phase: 0.8 },
-  });
-  return {
-    stop: () => {
-      swell.stop();
-      foam.stop();
-    },
-  };
+  const space = createSpace(ctx, out, 0.32);
+  const stops: Array<() => void> = [space.stop];
+
+  stops.push(
+    addBed(ctx, space.input, {
+      pink: true,
+      gain: 0.16,
+      highpass: 80,
+      lowpass: 700,
+      walk: { range: 0.05, minWait: 2600, maxWait: 6200 },
+    }),
+  );
+  stops.push(
+    addBed(ctx, out, {
+      gain: 0.032,
+      bandpass: { frequency: 900, q: 0.5 },
+      walk: { range: 0.014, minWait: 2600, maxWait: 6000 },
+    }),
+  );
+
+  // 浪：不规则的"涌起 → 铺开 → 退去"，泡沫声延后出现
+  stops.push(
+    everyRandom(6200, 13000, () => {
+      const now = ctx.currentTime + Math.random() * 0.4;
+      const rise = randomBetween(2.2, 3.6);
+      const fall = randomBetween(3.2, 5);
+      const pan = randomBetween(-0.45, 0.45);
+
+      const swell = ctx.createBufferSource();
+      swell.buffer = noiseBuffer(ctx);
+      swell.loop = true;
+      const swellFilter = ctx.createBiquadFilter();
+      swellFilter.type = 'lowpass';
+      swellFilter.Q.value = 0.7;
+      swellFilter.frequency.setValueAtTime(280, now);
+      swellFilter.frequency.linearRampToValueAtTime(randomBetween(1000, 1500), now + rise);
+      swellFilter.frequency.linearRampToValueAtTime(320, now + rise + fall);
+      const swellGain = ctx.createGain();
+      swellGain.gain.setValueAtTime(0.0001, now);
+      swellGain.gain.linearRampToValueAtTime(0.2, now + rise);
+      swellGain.gain.exponentialRampToValueAtTime(0.0001, now + rise + fall);
+      const swellPan = panned(ctx, pan);
+      swell.connect(swellFilter);
+      swellFilter.connect(swellGain);
+      swellGain.connect(swellPan);
+      swellPan.connect(space.input);
+      swell.start(now);
+      swell.stop(now + rise + fall + 0.2);
+
+      const foam = ctx.createBufferSource();
+      foam.buffer = noiseBuffer(ctx);
+      foam.loop = true;
+      const foamFilter = ctx.createBiquadFilter();
+      foamFilter.type = 'bandpass';
+      foamFilter.frequency.value = randomBetween(1900, 2600);
+      foamFilter.Q.value = 0.8;
+      const foamGain = ctx.createGain();
+      const foamAt = now + rise * 0.75;
+      foamGain.gain.setValueAtTime(0.0001, foamAt);
+      foamGain.gain.linearRampToValueAtTime(0.085, foamAt + 0.5);
+      foamGain.gain.exponentialRampToValueAtTime(0.0001, foamAt + 2.8);
+      const foamPan = panned(ctx, pan * 0.8);
+      foam.connect(foamFilter);
+      foamFilter.connect(foamGain);
+      foamGain.connect(foamPan);
+      foamPan.connect(space.input);
+      foam.start(foamAt);
+      foam.stop(foamAt + 3.2);
+    }, 4200),
+  );
+
+  return { stop: () => stops.forEach((fn) => fn()) };
 }
 
 function buildDawn(ctx: AudioContext, out: GainNode): LayerHandle {
-  const wind = buildNoiseLayer(ctx, out, {
-    pink: true,
-    highpass: 160,
-    lowpass: 820,
-    gain: 0.12,
-    lfo: { base: 0.12, depth: 0.03, rate: 0.05 },
-  });
-  const birds = scheduleChirps(ctx, out, {
-    minDelay: 3000,
-    maxDelay: 6800,
-    minFreq: 2400,
-    maxFreq: 3800,
-    duration: 0.13,
-    gain: 0.018,
-    pulsesMin: 2,
-    pulsesMax: 3,
-    glide: 1.18,
-  });
-  return {
-    stop: () => {
-      wind.stop();
-      birds();
-    },
-  };
+  const space = createSpace(ctx, out, 0.26);
+  const stops: Array<() => void> = [space.stop];
+
+  stops.push(
+    addBed(ctx, space.input, {
+      pink: true,
+      gain: 0.1,
+      highpass: 150,
+      lowpass: 820,
+      walk: { range: 0.03, minWait: 3000, maxWait: 7000 },
+    }),
+  );
+
+  stops.push(
+    everyRandom(
+      2400,
+      6400,
+      () => {
+        birdCall(ctx, space.input, randomBetween(-0.8, 0.8), false);
+      },
+      1500,
+    ),
+  );
+  // 远处还有一圈鸟，音量更轻
+  stops.push(
+    everyRandom(
+      5200,
+      12000,
+      () => {
+        birdCall(ctx, space.input, randomBetween(-1, 1), true);
+      },
+      4000,
+    ),
+  );
+
+  return { stop: () => stops.forEach((fn) => fn()) };
 }
 
 function buildSummer(ctx: AudioContext, out: GainNode): LayerHandle {
-  const cicada = buildNoiseLayer(ctx, out, {
-    bandpass: { frequency: 4800, q: 8 },
-    gain: 0.032,
-    am: { rate: 46, depth: 0.018 },
-  });
-  const leaves = buildNoiseLayer(ctx, out, {
-    highpass: 2400,
-    lowpass: 6200,
-    gain: 0.04,
-    lfo: { base: 0.04, depth: 0.018, rate: 0.32 },
-  });
-  return {
-    stop: () => {
-      cicada.stop();
-      leaves.stop();
-    },
-  };
+  const space = createSpace(ctx, out, 0.22);
+  const stops: Array<() => void> = [space.stop];
+
+  // 蝉：两路窄带噪声各自以不同频率起伏
+  stops.push(
+    addBed(ctx, space.input, {
+      bandpass: { frequency: 4800, q: 11 },
+      gain: 0.028,
+      am: { rate: 52, depth: 0.016 },
+      walk: { range: 0.012, minWait: 2200, maxWait: 6000 },
+    }),
+  );
+  stops.push(
+    addBed(ctx, out, {
+      bandpass: { frequency: 5600, q: 14 },
+      gain: 0.016,
+      am: { rate: 67, depth: 0.009 },
+      walk: { range: 0.008, minWait: 2600, maxWait: 7000 },
+    }),
+  );
+  // 树叶与远处的风
+  stops.push(
+    addBed(ctx, out, {
+      gain: 0.038,
+      highpass: 2400,
+      lowpass: 6200,
+      walk: { range: 0.018, minWait: 1600, maxWait: 4200 },
+    }),
+  );
+  // 偶尔一声远鸟
+  stops.push(
+    everyRandom(
+      9000,
+      21000,
+      () => {
+        birdCall(ctx, space.input, randomBetween(-1, 1), true);
+      },
+      7000,
+    ),
+  );
+
+  return { stop: () => stops.forEach((fn) => fn()) };
 }
 
 function buildPool(ctx: AudioContext, out: GainNode): LayerHandle {
-  const lapping = buildNoiseLayer(ctx, out, {
-    pink: true,
-    highpass: 120,
-    lowpass: 900,
-    gain: 0.18,
-    lfo: { base: 0.18, depth: 0.07, rate: 0.11 },
-  });
-  const shimmer = buildNoiseLayer(ctx, out, {
-    bandpass: { frequency: 2600, q: 0.8 },
-    gain: 0.025,
-    lfo: { base: 0.025, depth: 0.015, rate: 0.22, phase: 0.5 },
-  });
-  const droplets = scheduleChirps(ctx, out, {
-    minDelay: 1400,
-    maxDelay: 3800,
-    minFreq: 720,
-    maxFreq: 1300,
-    duration: 0.09,
-    gain: 0.012,
-    pulsesMin: 1,
-    pulsesMax: 2,
-    glide: 0.8,
-  });
-  return {
-    stop: () => {
-      lapping.stop();
-      shimmer.stop();
-      droplets();
-    },
-  };
+  const space = createSpace(ctx, out, 0.28);
+  const stops: Array<() => void> = [space.stop];
+
+  stops.push(
+    addBed(ctx, space.input, {
+      pink: true,
+      gain: 0.14,
+      highpass: 120,
+      lowpass: 900,
+      walk: { range: 0.045, minWait: 1800, maxWait: 4600 },
+    }),
+  );
+  stops.push(
+    addBed(ctx, out, {
+      gain: 0.02,
+      bandpass: { frequency: 2800, q: 0.9 },
+      walk: { range: 0.01, minWait: 2000, maxWait: 5000 },
+    }),
+  );
+
+  // 水泡：短促上扬的音，带随机声像
+  stops.push(
+    everyRandom(700, 2600, () => {
+      const now = ctx.currentTime + Math.random() * 0.2;
+      const count = Math.random() < 0.25 ? 2 : 1;
+      for (let i = 0; i < count; i += 1) {
+        tone(ctx, space.input, now + i * randomBetween(0.08, 0.16), {
+          from: randomBetween(620, 900),
+          to: randomBetween(1000, 1400),
+          duration: randomBetween(0.05, 0.1),
+          peak: randomBetween(0.008, 0.016),
+          pan: randomBetween(-0.7, 0.7),
+        });
+      }
+    }, 500),
+  );
+
+  // 偶尔的落水/溅水
+  stops.push(
+    everyRandom(9000, 22000, () => {
+      const now = ctx.currentTime;
+      noiseBurst(ctx, space.input, now, {
+        frequency: randomBetween(1600, 2400),
+        q: 1.1,
+        peak: 0.05,
+        decay: randomBetween(0.25, 0.45),
+        pan: randomBetween(-0.6, 0.6),
+        attack: 0.01,
+      });
+      tone(ctx, space.input, now + 0.02, {
+        from: randomBetween(500, 700),
+        to: randomBetween(260, 420),
+        duration: 0.12,
+        peak: 0.02,
+        pan: randomBetween(-0.5, 0.5),
+      });
+    }, 6000),
+  );
+
+  return { stop: () => stops.forEach((fn) => fn()) };
 }
 
 function buildWheat(ctx: AudioContext, out: GainNode): LayerHandle {
-  const wind = buildNoiseLayer(ctx, out, {
-    pink: true,
-    highpass: 100,
-    lowpass: 760,
-    gain: 0.2,
-    lfo: { base: 0.2, depth: 0.06, rate: 0.06 },
-  });
-  const rustle = buildNoiseLayer(ctx, out, {
-    bandpass: { frequency: 3100, q: 0.9 },
-    gain: 0.05,
-    lfo: { base: 0.05, depth: 0.025, rate: 0.4, phase: 0.6 },
-  });
-  return {
-    stop: () => {
-      wind.stop();
-      rustle.stop();
-    },
-  };
+  const space = createSpace(ctx, out, 0.24);
+  const stops: Array<() => void> = [space.stop];
+
+  stops.push(
+    addBed(ctx, space.input, {
+      pink: true,
+      gain: 0.18,
+      highpass: 100,
+      lowpass: 700,
+      walk: { range: 0.05, minWait: 2600, maxWait: 6400 },
+    }),
+  );
+  stops.push(
+    addBed(ctx, out, {
+      gain: 0.045,
+      bandpass: { frequency: 3000, q: 0.9 },
+      walk: { range: 0.02, minWait: 1500, maxWait: 4000 },
+    }),
+  );
+
+  // 麦浪扫过：带通扫频 + 慢包络
+  stops.push(
+    everyRandom(5200, 12000, () => {
+      const now = ctx.currentTime;
+      const source = ctx.createBufferSource();
+      source.buffer = noiseBuffer(ctx);
+      source.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.value = 0.9;
+      const from = randomBetween(1600, 2200);
+      filter.frequency.setValueAtTime(from, now);
+      filter.frequency.linearRampToValueAtTime(from * randomBetween(1.6, 2.1), now + 1.2);
+      filter.frequency.linearRampToValueAtTime(from * 0.8, now + 2.4);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.05, now + 0.9);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.4);
+      const pan = panned(ctx, randomBetween(-0.7, 0.7));
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(pan);
+      pan.connect(space.input);
+      source.start(now);
+      source.stop(now + 2.8);
+    }, 3000),
+  );
+
+  // 稀疏的虫鸣点缀
+  stops.push(
+    everyRandom(4200, 11000, () => {
+      const now = ctx.currentTime + Math.random() * 0.3;
+      const ticks = 2 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < ticks; i += 1) {
+        noiseBurst(ctx, space.input, now + i * 0.05, {
+          frequency: randomBetween(4200, 5200),
+          q: 14,
+          peak: 0.01,
+          decay: 0.02,
+          pan: randomBetween(-0.6, 0.6),
+        });
+      }
+    }, 4000),
+  );
+
+  return { stop: () => stops.forEach((fn) => fn()) };
 }
+
+const BUILDERS: Record<AmbientPreset, (ctx: AudioContext, out: GainNode) => LayerHandle> = {
+  rain: buildRain,
+  snow: buildSnow,
+  cloud: buildCloud,
+  starry: buildStarry,
+  coast: buildCoast,
+  dawn: buildDawn,
+  summer: buildSummer,
+  pool: buildPool,
+  wheat: buildWheat,
+};
 
 export interface AmbientEngine {
   setPreset: (preset: AmbientPreset) => void;
@@ -565,6 +948,7 @@ export interface AmbientEngine {
   dispose: () => void;
   isRunning: () => boolean;
 }
+
 /**
  * 创建环境音引擎。九套场景各自对应合成环境音。
  * volume 由外部滑块控制，内部用 masterGain 平滑过渡，避免突兀。
@@ -607,36 +991,11 @@ export function createAmbientEngine(initialPreset: AmbientPreset, volume: number
     stopLayer();
     const context = ensureContext();
     if (!context || !master) return;
-    switch (nextPreset) {
-      case 'rain':
-        layer = buildRain(context, master);
-        break;
-      case 'snow':
-        layer = buildSnow(context, master);
-        break;
-      case 'cloud':
-        layer = buildCloud(context, master);
-        break;
-      case 'starry':
-        layer = buildStarry(context, master);
-        break;
-      case 'coast':
-        layer = buildCoast(context, master);
-        break;
-      case 'dawn':
-        layer = buildDawn(context, master);
-        break;
-      case 'summer':
-        layer = buildSummer(context, master);
-        break;
-      case 'pool':
-        layer = buildPool(context, master);
-        break;
-      case 'wheat':
-        layer = buildWheat(context, master);
-        break;
-      default:
-        layer = buildRain(context, master);
+    try {
+      layer = BUILDERS[nextPreset](context, master);
+    } catch {
+      // 任何一层构建失败都不该让整页静音。
+      layer = null;
     }
   }
 

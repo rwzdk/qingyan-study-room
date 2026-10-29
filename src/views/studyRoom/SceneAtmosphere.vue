@@ -11,6 +11,8 @@ type ParticleKind = 'rain' | 'snow' | 'star' | 'pollen' | 'sparkle' | 'mist';
 
 interface Particle {
   kind: ParticleKind;
+  /** 0=远景 1=中景 2=近景，决定大小、速度与不透明度 */
+  layer: 0 | 1 | 2;
   x: number;
   y: number;
   vx: number;
@@ -18,6 +20,7 @@ interface Particle {
   size: number;
   alpha: number;
   phase: number;
+  swayRate: number;
   drift: number;
 }
 
@@ -29,16 +32,21 @@ interface EffectConfig {
 }
 
 const EFFECTS: Record<StudyRoomScene, EffectConfig> = {
-  rain: { kind: 'rain', count: 52, color: 'secondary', alpha: 0.32 },
-  snow: { kind: 'snow', count: 42, color: '#ffffff', alpha: 0.62 },
-  cloud: { kind: 'mist', count: 7, color: '#ffffff', alpha: 0.07 },
-  starry: { kind: 'star', count: 56, color: '#ffffff', alpha: 0.82 },
-  coast: { kind: 'sparkle', count: 34, color: 'secondary', alpha: 0.5 },
-  dawn: { kind: 'pollen', count: 30, color: 'primary', alpha: 0.45 },
-  summer: { kind: 'pollen', count: 34, color: 'primary', alpha: 0.5 },
-  pool: { kind: 'sparkle', count: 38, color: 'secondary', alpha: 0.55 },
-  wheat: { kind: 'pollen', count: 32, color: 'primary', alpha: 0.5 },
+  rain: { kind: 'rain', count: 56, color: 'secondary', alpha: 0.3 },
+  snow: { kind: 'snow', count: 58, color: '#ffffff', alpha: 0.6 },
+  cloud: { kind: 'mist', count: 10, color: '#ffffff', alpha: 0.07 },
+  starry: { kind: 'star', count: 56, color: '#ffffff', alpha: 0.8 },
+  coast: { kind: 'sparkle', count: 40, color: 'secondary', alpha: 0.46 },
+  dawn: { kind: 'pollen', count: 32, color: 'primary', alpha: 0.4 },
+  summer: { kind: 'pollen', count: 34, color: 'primary', alpha: 0.42 },
+  pool: { kind: 'sparkle', count: 40, color: 'secondary', alpha: 0.5 },
+  wheat: { kind: 'pollen', count: 34, color: 'primary', alpha: 0.44 },
 };
+
+/** 远景粒子压暗压小，近景更亮更大，形成景深。 */
+const LAYER_SCALE = [0.6, 1, 1.4];
+const LAYER_ALPHA = [0.5, 1, 1.1];
+const LAYER_SPEED = [0.6, 1, 1.35];
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const bgStyle = computed(() => ({
@@ -47,7 +55,7 @@ const bgStyle = computed(() => ({
 
 let ctx: CanvasRenderingContext2D | null = null;
 let particles: Particle[] = [];
-let particleColor = '#ffffff';
+let particleColor = { r: 255, g: 255, b: 255 };
 let width = 0;
 let height = 0;
 let dpr = 1;
@@ -58,7 +66,7 @@ let reducedMotion = false;
 let resizeObserver: ResizeObserver | null = null;
 let motionQuery: MediaQueryList | null = null;
 
-function rgba(hex: string, alpha: number): string {
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const raw = hex.replace('#', '');
   const normalized =
     raw.length === 3
@@ -68,18 +76,26 @@ function rgba(hex: string, alpha: number): string {
           .join('')
       : raw;
   const value = Number.parseInt(normalized, 16);
-  if (!Number.isFinite(value)) return `rgba(255, 255, 255, ${alpha})`;
-  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+  if (!Number.isFinite(value)) return { r: 255, g: 255, b: 255 };
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
 }
 
 function random(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
+function randomLayer(): 0 | 1 | 2 {
+  const roll = Math.random();
+  if (roll < 0.4) return 0;
+  return roll < 0.8 ? 1 : 2;
+}
+
 function createParticle(config: EffectConfig): Particle {
   const { kind } = config;
-  const base = {
+  const layer = kind === 'star' ? (Math.random() < 0.7 ? (0 as const) : (1 as const)) : randomLayer();
+  const base: Particle = {
     kind,
+    layer,
     x: Math.random() * width,
     y: Math.random() * height,
     vx: 0,
@@ -87,78 +103,81 @@ function createParticle(config: EffectConfig): Particle {
     size: 1,
     alpha: config.alpha,
     phase: Math.random() * Math.PI * 2,
+    swayRate: random(0.4, 1.2),
     drift: 0,
   };
+  const scale = LAYER_SCALE[layer];
+  const alphaScale = LAYER_ALPHA[layer];
+  const speedScale = LAYER_SPEED[layer];
 
   if (kind === 'rain') {
     return {
       ...base,
-      vx: random(-42, -16),
-      vy: random(360, 620),
-      size: random(10, 26),
-      alpha: random(0.16, config.alpha),
+      vx: random(-46, -18) * speedScale,
+      vy: random(320, 560) * speedScale,
+      size: random(10, 24) * (0.7 + scale * 0.5),
+      alpha: Math.min(0.46, random(0.1, config.alpha) * alphaScale),
     };
   }
   if (kind === 'snow') {
     return {
       ...base,
       vx: random(-8, 8),
-      vy: random(16, 52),
-      size: random(1, 2.8),
-      alpha: random(0.32, config.alpha),
-      drift: random(6, 18),
+      vy: random(12, 38) * speedScale,
+      size: random(0.9, 2.6) * scale,
+      alpha: Math.min(0.8, random(0.28, config.alpha) * alphaScale),
+      drift: random(6, 20) * scale,
+      swayRate: random(0.25, 0.85),
     };
   }
   if (kind === 'star') {
     return {
       ...base,
-      // 星点只落在天空区域，避免落在桌面和小岛上像雪粒。
-      y: Math.random() * height * 0.56,
-      size: random(0.6, 1.8),
-      alpha: random(0.28, config.alpha),
+      y: Math.random() * height * 0.58,
+      size: random(0.5, 1.7) * scale,
+      alpha: Math.min(0.9, random(0.24, config.alpha) * alphaScale),
     };
   }
   if (kind === 'pollen') {
     return {
       ...base,
-      vx: random(5, 17),
-      vy: random(-6, 1),
-      size: random(1, 2.6),
-      alpha: random(0.26, config.alpha),
-      drift: random(4, 12),
+      vx: random(4, 16) * speedScale,
+      vy: random(-7, 1) * speedScale,
+      size: random(0.9, 2.5) * scale,
+      alpha: Math.min(0.65, random(0.22, config.alpha) * alphaScale),
+      drift: random(4, 13) * scale,
     };
   }
   if (kind === 'sparkle') {
     return {
       ...base,
-      vx: random(3, 12),
-      vy: random(-6, -1),
-      size: random(0.8, 2.2),
-      alpha: random(0.18, config.alpha),
+      vx: random(2, 12) * speedScale,
+      vy: random(-7, -1) * speedScale,
+      size: random(0.7, 2.1) * scale,
+      alpha: Math.min(0.7, random(0.15, config.alpha) * alphaScale),
     };
   }
-  // mist
+  // mist：大范围柔光云影
   return {
     ...base,
-    vx: random(3, 9),
-    vy: random(-1.5, 1.5),
-    size: random(80, 220),
-    alpha: random(0.035, config.alpha),
+    vx: random(1.5, 6) * speedScale,
+    vy: random(-1.1, 1.1),
+    size: random(120, 300) * (layer === 0 ? 1.5 : 1),
+    alpha: random(0.03, config.alpha) * (layer === 0 ? 1.2 : 1),
   };
 }
 
 function initParticles(): void {
   const config = EFFECTS[props.scene];
   const copy = getStudyRoomSceneCopy(props.scene);
-  particleColor =
+  particleColor = hexToRgb(
     config.color === 'primary'
       ? copy.primary
       : config.color === 'secondary'
         ? copy.secondary
-        : config.color;
-  const count = Math.round(
-    config.count * (width < 720 ? 0.62 : 1),
+        : config.color,
   );
+  const count = Math.round(config.count * (width < 720 ? 0.55 : 1));
   particles = Array.from({ length: count }, () => createParticle(config));
 }
 
@@ -177,44 +196,67 @@ function resize(): void {
   initParticles();
 }
 
+/** 慢速风场：雨丝角度与雪花飘向共用，避免各飘各的。 */
+function gustAt(seconds: number): number {
+  return (
+    0.55 +
+    0.3 * Math.sin(seconds * 0.13) +
+    0.15 * Math.sin(seconds * 0.071 + 1.7)
+  );
+}
+
+function paint(color: { r: number; g: number; b: number }, alpha: number): string {
+  return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha.toFixed(3)})`;
+}
+
 function draw(now: number, dt: number): void {
   if (!ctx) return;
   ctx.clearRect(0, 0, width, height);
   const seconds = now / 1000;
-  const color = particleColor;
+  const gust = gustAt(seconds);
 
   for (const particle of particles) {
     if (particle.kind === 'rain') {
-      particle.x += particle.vx * dt;
+      const wind = gust * 60 * LAYER_SPEED[particle.layer];
+      particle.x += (particle.vx + wind) * dt;
       particle.y += particle.vy * dt;
       if (particle.y > height + particle.size) {
         particle.y = -particle.size;
         particle.x = Math.random() * width;
       }
-      if (particle.x < -10) particle.x = width + 10;
-      if (particle.x > width + 10) particle.x = -10;
+      if (particle.x < -20) particle.x = width + 20;
+      if (particle.x > width + 20) particle.x = -20;
       ctx.beginPath();
-      ctx.strokeStyle = rgba(color, particle.alpha);
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = paint(particleColor, particle.alpha);
+      ctx.lineWidth = particle.layer === 2 ? 1.4 : particle.layer === 1 ? 1 : 0.6;
       ctx.moveTo(particle.x, particle.y);
-      ctx.lineTo(particle.x - 4, particle.y + particle.size);
+      ctx.lineTo(particle.x - particle.size * 0.18, particle.y + particle.size);
       ctx.stroke();
       continue;
     }
 
     if (particle.kind === 'snow') {
       particle.x +=
-        (particle.vx + Math.sin(seconds * 0.8 + particle.phase) * particle.drift) *
+        (particle.vx +
+          Math.sin(seconds * particle.swayRate + particle.phase) * particle.drift +
+          (gust - 0.55) * 18) *
         dt;
       particle.y += particle.vy * dt;
-      if (particle.y > height + 4) {
-        particle.y = -4;
+      if (particle.y > height + 6) {
+        particle.y = -6;
         particle.x = Math.random() * width;
       }
-      if (particle.x < -4) particle.x = width + 4;
-      if (particle.x > width + 4) particle.x = -4;
+      if (particle.x < -6) particle.x = width + 6;
+      if (particle.x > width + 6) particle.x = -6;
+      if (particle.layer === 2) {
+        // 近景雪花虚焦：先一层柔光再叠实体，才有景深。
+        ctx.beginPath();
+        ctx.fillStyle = paint(particleColor, particle.alpha * 0.35);
+        ctx.arc(particle.x, particle.y, particle.size * 2.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.beginPath();
-      ctx.fillStyle = rgba(color, particle.alpha);
+      ctx.fillStyle = paint(particleColor, particle.alpha);
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
       continue;
@@ -223,9 +265,11 @@ function draw(now: number, dt: number): void {
     if (particle.kind === 'star') {
       const twinkle =
         particle.alpha *
-        (0.42 + 0.58 * (0.5 + 0.5 * Math.sin(seconds * 1.5 + particle.phase)));
+        (0.55 +
+          0.3 * Math.sin(seconds * 1.4 + particle.phase) +
+          0.15 * Math.sin(seconds * 3.7 + particle.phase * 1.7));
       ctx.beginPath();
-      ctx.fillStyle = rgba(color, twinkle);
+      ctx.fillStyle = paint(particleColor, Math.max(0.05, twinkle));
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
       continue;
@@ -234,13 +278,16 @@ function draw(now: number, dt: number): void {
     if (particle.kind === 'pollen') {
       particle.x += particle.vx * dt;
       particle.y +=
-        (particle.vy + Math.sin(seconds * 0.7 + particle.phase) * particle.drift) *
+        (particle.vy +
+          Math.sin(seconds * particle.swayRate + particle.phase) * particle.drift) *
         dt;
       if (particle.x > width + 8) particle.x = -8;
       if (particle.y < -8) particle.y = height + 8;
       if (particle.y > height + 8) particle.y = -8;
+      const shimmer =
+        particle.alpha * (0.75 + 0.25 * Math.sin(seconds * 1.9 + particle.phase));
       ctx.beginPath();
-      ctx.fillStyle = rgba(color, particle.alpha);
+      ctx.fillStyle = paint(particleColor, shimmer);
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
       continue;
@@ -253,20 +300,23 @@ function draw(now: number, dt: number): void {
       if (particle.y < -8) particle.y = height + 8;
       const twinkle =
         particle.alpha *
-        (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(seconds * 2.1 + particle.phase)));
+        (0.35 +
+          0.4 * Math.sin(seconds * 2.1 + particle.phase) +
+          0.25 * Math.sin(seconds * 5.3 + particle.phase * 2.2));
       ctx.beginPath();
-      ctx.fillStyle = rgba(color, twinkle);
+      ctx.fillStyle = paint(particleColor, Math.max(0.04, twinkle));
       ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
       ctx.fill();
       continue;
     }
 
-    // mist：大范围、低透明度的缓慢漂移云影
+    // mist
     particle.x += particle.vx * dt;
     particle.y += particle.vy * dt;
     if (particle.x > width + particle.size) particle.x = -particle.size;
     if (particle.y > height + particle.size) particle.y = -particle.size;
     if (particle.y < -particle.size) particle.y = height + particle.size;
+    const breath = 0.8 + 0.2 * Math.sin(seconds * 0.1 + particle.phase);
     const gradient = ctx.createRadialGradient(
       particle.x,
       particle.y,
@@ -275,8 +325,8 @@ function draw(now: number, dt: number): void {
       particle.y,
       particle.size,
     );
-    gradient.addColorStop(0, rgba(color, particle.alpha));
-    gradient.addColorStop(1, rgba(color, 0));
+    gradient.addColorStop(0, paint(particleColor, particle.alpha * breath));
+    gradient.addColorStop(1, paint(particleColor, 0));
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
@@ -376,12 +426,13 @@ onBeforeUnmount(() => {
   inset: 0;
 }
 
+/* 只保留一层很慢的推拉，幅度压到最小，避免整屏位移引起眩晕 */
 .scene-bg {
   inset: -6%;
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
-  animation: scene-drift 52s ease-in-out infinite alternate;
+  animation: scene-drift 72s ease-in-out infinite alternate;
   transform: translateZ(0);
   will-change: transform;
 }
@@ -409,20 +460,12 @@ onBeforeUnmount(() => {
   background:
     radial-gradient(
       circle at 16% 10%,
-      color-mix(
-        in srgb,
-        var(--study-room-primary, #d7ef83) 14%,
-        transparent
-      ),
+      color-mix(in srgb, var(--study-room-primary, #d7ef83) 14%, transparent),
       transparent 42%
     ),
     radial-gradient(
       circle at 84% 84%,
-      color-mix(
-        in srgb,
-        var(--study-room-secondary, #5ab8b0) 16%,
-        transparent
-      ),
+      color-mix(in srgb, var(--study-room-secondary, #5ab8b0) 16%, transparent),
       transparent 52%
     );
   opacity: 0.85;
@@ -434,48 +477,48 @@ onBeforeUnmount(() => {
 }
 
 .scene-atmosphere[data-scene='rain'] .scene-bg {
-  animation-duration: 46s;
-}
-
-.scene-atmosphere[data-scene='snow'] .scene-bg {
-  animation-duration: 58s;
-}
-
-.scene-atmosphere[data-scene='cloud'] .scene-bg {
-  animation-duration: 72s;
-}
-
-.scene-atmosphere[data-scene='starry'] .scene-bg {
-  animation-duration: 82s;
-}
-
-.scene-atmosphere[data-scene='coast'] .scene-bg {
-  animation-duration: 50s;
-}
-
-.scene-atmosphere[data-scene='dawn'] .scene-bg {
   animation-duration: 64s;
 }
 
+.scene-atmosphere[data-scene='snow'] .scene-bg {
+  animation-duration: 80s;
+}
+
+.scene-atmosphere[data-scene='cloud'] .scene-bg {
+  animation-duration: 96s;
+}
+
+.scene-atmosphere[data-scene='starry'] .scene-bg {
+  animation-duration: 104s;
+}
+
+.scene-atmosphere[data-scene='coast'] .scene-bg {
+  animation-duration: 72s;
+}
+
+.scene-atmosphere[data-scene='dawn'] .scene-bg {
+  animation-duration: 88s;
+}
+
 .scene-atmosphere[data-scene='summer'] .scene-bg {
-  animation-duration: 44s;
+  animation-duration: 68s;
 }
 
 .scene-atmosphere[data-scene='pool'] .scene-bg {
-  animation-duration: 48s;
+  animation-duration: 72s;
 }
 
 .scene-atmosphere[data-scene='wheat'] .scene-bg {
-  animation-duration: 56s;
+  animation-duration: 78s;
 }
 
 @keyframes scene-drift {
   from {
-    transform: scale(1.03) translate3d(-0.5%, -0.35%, 0);
+    transform: scale(1.02) translate3d(-0.3%, -0.2%, 0);
   }
 
   to {
-    transform: scale(1.085) translate3d(0.5%, 0.35%, 0);
+    transform: scale(1.05) translate3d(0.3%, 0.2%, 0);
   }
 }
 
