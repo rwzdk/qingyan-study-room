@@ -10,6 +10,7 @@ import StudyDocs from './StudyDocs.vue';
 import StudyHome from './StudyHome.vue';
 import StudyPlans from './StudyPlans.vue';
 import TabErrorBoundary from './TabErrorBoundary.vue';
+import { prefetchAdminStats } from './admin-prefetch';
 import { flushStudyRoom } from './study-room-state-store';
 import './study-room-extension.css';
 import { currentUser } from '#/lib/local-auth';
@@ -108,6 +109,20 @@ watch(
 );
 
 // 云端/缓存状态由 SessionGate 在进入页面前注入，这里不再自行加载。
+
+// 管理员：趁空闲把统计和图表分块预热，点开管理页时不必当场等握手。
+if (isAdmin.value) {
+  const warm = () => {
+    void import('./AdminView.vue');
+    prefetchAdminStats();
+  };
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(warm, { timeout: 4000 });
+  } else {
+    setTimeout(warm, 1200);
+  }
+}
+
 onBeforeUnmount(() => {
   void flushStudyRoom();
   // 清掉全局标记：该属性是"当前在自习室"的开关，

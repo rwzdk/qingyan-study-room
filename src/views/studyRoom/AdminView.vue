@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 import {
+  cachedAdminStats,
   cloudAdminStats,
   readCloudSession,
   type AdminStats,
@@ -11,11 +12,20 @@ import AdminLocationChart from './admin/AdminLocationChart.vue';
 import AdminRegisterChart from './admin/AdminRegisterChart.vue';
 import { locationLabel } from './admin/admin-format';
 
-const stats = ref<AdminStats | null>(null);
-const loading = ref(true);
+// 切走再切回来时组件会重新挂载：先用上一次的结果顶住首屏，数据在背后刷新。
+const stats = ref<AdminStats | null>(cachedAdminStats());
+const loading = ref(stats.value === null);
 const error = ref('');
-const updatedAt = ref('');
 const refreshing = ref(false);
+
+function clockOf(iso: string | undefined): string {
+  const value = Date.parse(iso ?? '');
+  return Number.isFinite(value)
+    ? new Date(value).toLocaleTimeString('zh-CN', { hour12: false })
+    : '';
+}
+
+const updatedAt = ref(clockOf(stats.value?.now));
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -30,7 +40,7 @@ async function load(): Promise<void> {
   try {
     stats.value = await cloudAdminStats(session.token);
     error.value = '';
-    updatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    updatedAt.value = clockOf(stats.value?.now);
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : '加载失败';
   } finally {

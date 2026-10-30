@@ -13,6 +13,9 @@ const SESSION_KEY = 'qingyan-study-room:cloud-session:v1';
 // 这条链路会「挂住」而不是立刻失败，所以单次超时压短、用更多次重试换总耗时。
 const REQUEST_TIMEOUT = 6_000;
 const EMAIL_CODE_TIMEOUT = 25_000;
+// 管理页统计要等 16 条 D1 查询，实测首字节 2~3 秒、TLS 握手能到十几秒。
+// 用一次长预算换掉「6 秒掐断再重试四次」：慢但能成的请求不该被丢掉。
+const ADMIN_STATS_TIMEOUT = 15_000;
 const RETRY_DELAYS = [300, 700, 1400];
 
 export interface CloudSession {
@@ -122,9 +125,9 @@ export function clearCloudSession(): void {
   }
 }
 
-function timeoutSignal(): AbortSignal | undefined {
+function timeoutSignal(timeoutMs: number = REQUEST_TIMEOUT): AbortSignal | undefined {
   return typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
-    ? AbortSignal.timeout(REQUEST_TIMEOUT)
+    ? AbortSignal.timeout(timeoutMs)
     : undefined;
 }
 
@@ -165,12 +168,15 @@ async function request(
   path: string,
   init: RequestInit,
   token?: string,
+  options?: { timeoutMs?: number; retries?: number },
 ): Promise<{ status: number; payload: unknown }> {
-  const delays = !init.method || init.method === 'GET' ? RETRY_DELAYS : [];
+  const isGet = !init.method || init.method === 'GET';
+  const retries = options?.retries ?? (isGet ? RETRY_DELAYS.length : 0);
+  const delays = RETRY_DELAYS.slice(0, retries);
   let lastError: unknown;
   for (let attempt = 0; attempt <= delays.length; attempt += 1) {
     try {
-      return await requestOnce(path, init, token);
+      return await requestOnce(path, init, token, options?.timeoutMs);
     } catch (caught) {
       lastError = caught;
       if (!(caught instanceof CloudError) || caught.code !== 'network_error') {
@@ -188,6 +194,7 @@ async function requestOnce(
   path: string,
   init: RequestInit,
   token?: string,
+  timeoutMs?: number,
 ): Promise<{ status: number; payload: unknown }> {
   let response: Response;
   try {
@@ -200,7 +207,7 @@ async function requestOnce(
         ...(token ? { authorization: `Bearer ${token}` } : {}),
         ...init.headers,
       },
-      signal: init.signal ?? timeoutSignal(),
+      signal: init.signal ?? timeoutSignal(timeoutMs),
     });
   } catch {
     throw new CloudError('network_error');
@@ -514,10 +521,23 @@ export interface AdminStats {
   }[];
 }
 
+/** 最近一次成功的统计：管理页每次切回来都要重新拉，先用它顶住首屏。 */
+let adminStatsCache: AdminStats | null = null;
+
+export function cachedAdminStats(): AdminStats | null {
+  return adminStatsCache;
+}
+
 export async function cloudAdminStats(token: string): Promise<AdminStats> {
-  const { status, payload } = await request('/api/admin/stats', { method: 'GET' }, token);
+  const { status, payload } = await request(
+    '/api/admin/stats',
+    { method: 'GET' },
+    token,
+    { timeoutMs: ADMIN_STATS_TIMEOUT, retries: 1 },
+  );
   if (status === 200 && payload && typeof payload === 'object') {
-    return payload as AdminStats;
+    adminStatsCache = payload as AdminStats;
+    return adminStatsCache;
   }
   if (status === 403) throw new CloudError('forbidden' as CloudErrorCode);
   throw new CloudError(codeOfStatus(status, payload));
