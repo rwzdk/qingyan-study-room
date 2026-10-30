@@ -1,8 +1,7 @@
 <script lang="ts" setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import AdminView from './AdminView.vue';
 import FocusRoom from './FocusRoom.vue';
 import IslandCheckin from './IslandCheckin.vue';
 import RoomTopBar from './RoomTopBar.vue';
@@ -37,6 +36,8 @@ const BASE_TAB_ITEMS: { key: RoomTab; icon: PixelIconName; label: string }[] = [
 ];
 
 const isAdmin = computed(() => currentUser.value?.isAdmin === true);
+// 管理页包含 ECharts，按需加载，避免所有用户都为它承担首屏体积。
+const AdminView = defineAsyncComponent(() => import('./AdminView.vue'));
 
 /** 管理入口只对管理员显示。 */
 const tabItems = computed(() =>
@@ -140,11 +141,16 @@ onBeforeUnmount(() => {
       <!-- 每个 tab 都包一层错误边界：单个 tab 渲染出错时只影响自己那块，
            不会因为异常冒泡把整个自习室（含顶栏导航）卸载掉。 -->
       <TabErrorBoundary :reset-key="currentTab" class="study-room-tab-boundary">
-        <section v-if="currentTab === 'focus'" class="study-room-panel study-room-focus-panel">
+        <!-- 专注页常驻挂载：切到小岛/计划等页签时计时器和结束提醒必须继续跑，
+             卸载 FocusTimer 会 cancelReminder()，专注结束时就没有提示音了。 -->
+        <section
+          v-show="currentTab === 'focus'"
+          class="study-room-panel study-room-focus-panel"
+        >
           <FocusRoom :scene="scene" :scene-copy="sceneCopy" />
         </section>
 
-        <section v-else-if="currentTab === 'island'" class="study-room-panel study-room-island-panel">
+        <section v-if="currentTab === 'island'" class="study-room-panel study-room-island-panel">
           <IslandCheckin :scene="scene" />
         </section>
 

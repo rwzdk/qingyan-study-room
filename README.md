@@ -10,6 +10,7 @@
 
 账号与自习数据都放在云端（Cloudflare Worker + D1），换浏览器、换设备、换访问地址，登录后数据都在：
 
+- 注册需要 QQ 邮箱验证码；登录可以填用户名或邮箱；忘记密码用邮箱验证码重置，老账号也能在登录页把邮箱绑定到原账号。
 - 注册 / 登录由 Worker 校验，密码用 PBKDF2-SHA256 加盐哈希后存储，登录态是 90 天有效的会话 token。
 - 本机 `localStorage` 只作为离线缓存与未同步队列：改动先在本地落盘，1.2 秒防抖后推云端；断网时攒着，联网或每 20 秒自动补推。
 - 每份数据带 `revision` 版本号，多设备同时写时按「谁更晚修改」取舍，不会互相覆盖。
@@ -19,15 +20,15 @@
 
 ## 功能
 
-- **云端账号**：注册 / 登录 / 退出，密码哈希与登录态由服务端保管，数据跟账号走。
+- **云端账号**：QQ 邮箱验证码注册、用户名或邮箱登录、邮箱找回密码与老账号绑定邮箱；密码哈希与登录态由服务端保管，数据跟账号走。
 - **小岛打卡**：3D 像素小岛随打卡成长，展示持续来访、岛龄、本周足迹和年度热力图。
-- **专注室**：25 / 45 / 60 分钟番茄钟，沉浸模式，今日待办，以及 Web Audio 实时合成的环境音。
+- **专注室**：25 / 45 / 60 分钟番茄钟，沉浸模式，今日待办，以及 Web Audio 实时合成的环境音；切到小岛、计划等其他页签时计时和结束提醒仍继续运行。
 - **结束提醒**：自定义提示文字，专注结束后播报语音并响起提示铃；页面切到后台也能准点提醒。
 - **学习计划**：把长期目标拆成任务，记录完成状态和整体进度。
 - **阅读笔记**：新建、编辑和保存文档，集中管理学习记录。
 - **主页统计**：加入天数、连续活跃、打卡总数、年度进度和最近 7 天专注轨迹。
 - **对话室**：顶栏进入，消息存 D1，带头像与限流。
-- **管理后台**：管理员可见「管理」页签，查看注册用户、在线用户、云端数据量与最近更新。
+- **管理后台**：管理员可见「管理」页签，查看注册用户、在线用户、云端数据量、登录地点、近 14 天登录 / 注册趋势和最近登录记录；图表由 ECharts 绘制。
 - **场景切换**：雨林、雪日、暖云、星夜、海岸、晨光、夏日乡村阳台、池边、麦田九套背景与主色。
 - **数据备份**：主页支持导出 / 导入 JSON（打卡、计划、笔记、昵称头像、场景）。
 
@@ -73,14 +74,22 @@
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /api/auth/register` `login` `logout`、`GET /api/auth/me` | 账号注册、登录、退出与身份校验（PBKDF2 + 会话 token） |
+| `POST /api/auth/register` `login` `logout`、`GET /api/auth/me` | 账号注册、用户名或邮箱登录、退出与身份校验（PBKDF2 + 会话 token） |
+| `POST /api/auth/email-code` `reset-password` `bind-email` | 邮箱验证码：注册、忘记密码重置、老账号绑定邮箱 |
 | `POST /api/presence` | 每分钟上报活跃，用于「在线用户」统计 |
 | `GET` / `PUT /api/state` | 拉取 / 推送整份自习数据（带 revision 冲突检测） |
-| `GET /api/admin/stats` | 管理员专属：用户数、在线人数、云端数据量、最近更新、边缘节点 |
+| `GET /api/admin/stats` | 管理员专属：用户数、在线人数、登录地点、登录 / 注册趋势、云端数据量、最近更新 |
 | `POST /api/tts` | 专注结束的提示语音合成（见下节） |
 | `GET` / `POST /api/chat` | 对话室消息读写 |
 
 管理员由 Worker 密钥 `ADMIN_USERNAMES`（逗号分隔的用户名）或用户表 `is_admin` 决定，每次请求实时判定；导航里的「管理」页签只对管理员显示，直接改地址强行访问也会被拦回小岛页。
+
+### 邮箱验证码与登录地点
+
+- 邮件走 QQ 邮箱 SMTP（`smtp.qq.com:465`，SSL + 授权码），由 Worker 通过 TCP socket 直连发送；邮箱账号、授权码和验证码密钥只放在 Worker secret 里，不进仓库和前端。
+- 6 位验证码 10 分钟有效，60 秒可重发；同一邮箱每小时最多 5 封、同一 IP 每小时最多 20 封；验证码只存 HMAC 指纹，单码最多尝试 5 次。
+- 登录时读取 Cloudflare 自带的国家 / 省 / 城市 / 边缘节点信息，随会话保存；管理页只展示城市级位置，不保存原始 IP。
+- 找回密码后该账号的所有旧会话立即失效，其他设备需要重新登录。
 
 所有数据都在 Cloudflare 免费额度内（Workers 每天 10 万请求、D1 5GB 存储），不需要额外服务器。
 
@@ -98,6 +107,7 @@
 | --- | --- |
 | 前端框架 | Vue 3 + TypeScript + Vite |
 | UI 与图标 | Element Plus、lucide-vue-next、自绘像素图标 |
+| 图表 | ECharts（管理页，按需加载） |
 | 3D 场景 | Three.js |
 | 状态 | Vue Composition API，本地缓存 + 云端同步 |
 | 服务端 | Cloudflare Worker + D1（账号、数据、对话室、TTS 代理、管理统计） |
@@ -116,15 +126,24 @@ pnpm dev:static
 pnpm chat:dev
 ```
 
-本地联调时用 `VITE_CLOUD_API_URL=http://127.0.0.1:8787` 指向本地 Worker（`.dev.vars` 需要 `ADMIN_USERNAMES`，TTS 需要 `QWEN_TTS_API_KEY`）。
+本地联调时用 `VITE_CLOUD_API_URL=http://127.0.0.1:8787` 指向本地 Worker（`.dev.vars` 需要 `ADMIN_USERNAMES`；TTS 需要 `QWEN_TTS_API_KEY`；邮箱验证码需要 `MAIL_HOST` `MAIL_PORT` `MAIL_SECURE` `MAIL_USERNAME` `MAIL_PASSWORD` `MAIL_SENDER_NAME` 和 `EMAIL_CODE_SECRET`）。
 
 部署服务端（改 `worker.js` / `study-cloud.js` 或换密钥后执行）：
 
 ```bash
 npx wrangler secret put QWEN_TTS_API_KEY --config cloudflare/chat-worker/wrangler.toml
 npx wrangler secret put ADMIN_USERNAMES --config cloudflare/chat-worker/wrangler.toml
+npx wrangler secret put MAIL_HOST --config cloudflare/chat-worker/wrangler.toml
+npx wrangler secret put MAIL_PORT --config cloudflare/chat-worker/wrangler.toml
+npx wrangler secret put MAIL_SECURE --config cloudflare/chat-worker/wrangler.toml
+npx wrangler secret put MAIL_USERNAME --config cloudflare/chat-worker/wrangler.toml
+npx wrangler secret put MAIL_PASSWORD --config cloudflare/chat-worker/wrangler.toml
+npx wrangler secret put MAIL_SENDER_NAME --config cloudflare/chat-worker/wrangler.toml
+npx wrangler secret put EMAIL_CODE_SECRET --config cloudflare/chat-worker/wrangler.toml
 npx wrangler deploy --config cloudflare/chat-worker/wrangler.toml
 ```
+
+`MAIL_USERNAME` 是发信的 QQ 邮箱，`MAIL_PASSWORD` 是 QQ 邮箱设置里生成的 **SMTP 授权码**（不是 QQ 登录密码）；`MAIL_FROM` 不填时默认使用 `MAIL_USERNAME`。`EMAIL_CODE_SECRET` 用一段足够长的随机字符串。
 
 ## 项目结构
 

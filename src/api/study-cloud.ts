@@ -12,6 +12,7 @@ const BASE = (
 const SESSION_KEY = 'qingyan-study-room:cloud-session:v1';
 // 这条链路会「挂住」而不是立刻失败，所以单次超时压短、用更多次重试换总耗时。
 const REQUEST_TIMEOUT = 6_000;
+const EMAIL_CODE_TIMEOUT = 25_000;
 const RETRY_DELAYS = [300, 700, 1400];
 
 export interface CloudSession {
@@ -32,6 +33,13 @@ export type CloudErrorCode =
   | 'network_error'
   | 'invalid_credentials'
   | 'username_taken'
+  | 'email_taken'
+  | 'email_bound'
+  | 'code_invalid'
+  | 'code_rate_limited'
+  | 'too_many_attempts'
+  | 'email_send_failed'
+  | 'email_unavailable'
   | 'invalid_input'
   | 'unauthorized'
   | 'state_too_large'
@@ -42,7 +50,14 @@ const ERROR_MESSAGES: Record<CloudErrorCode, string> = {
   network_error: '连不上云端，请检查网络后重试',
   invalid_credentials: '用户名或密码不正确',
   username_taken: '用户名已存在',
-  invalid_input: '用户名或密码格式不正确',
+  email_taken: '这个邮箱已经注册过了',
+  email_bound: '该账号已经绑定过邮箱，请直接用邮箱登录',
+  code_invalid: '验证码不正确或已过期',
+  code_rate_limited: '验证码发送太频繁，请稍后再试',
+  too_many_attempts: '尝试次数过多，请稍后再试',
+  email_send_failed: '验证码邮件发送失败，请稍后重试',
+  email_unavailable: '邮件服务暂时不可用，请稍后再试',
+  invalid_input: '填写的信息格式不正确',
   unauthorized: '登录已过期，请重新登录',
   state_too_large: '数据太大，暂时无法同步',
   forbidden: '当前账号没有管理权限',
@@ -51,11 +66,13 @@ const ERROR_MESSAGES: Record<CloudErrorCode, string> = {
 
 export class CloudError extends Error {
   readonly code: CloudErrorCode;
+  readonly retryAfter?: number;
 
-  constructor(code: CloudErrorCode) {
+  constructor(code: CloudErrorCode, retryAfter?: number) {
     super(ERROR_MESSAGES[code]);
     this.name = 'CloudError';
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -111,28 +128,47 @@ function timeoutSignal(): AbortSignal | undefined {
     : undefined;
 }
 
+function rawErrorOf(payload: unknown): string {
+  return payload && typeof payload === 'object' && 'error' in payload
+    ? String((payload as { error?: unknown }).error)
+    : '';
+}
+
 function codeOfStatus(status: number, payload: unknown): CloudErrorCode {
-  const raw =
-    payload && typeof payload === 'object' && 'error' in payload
-      ? String((payload as { error?: unknown }).error)
-      : '';
+  const raw = rawErrorOf(payload);
   if (raw === 'username_taken') return 'username_taken';
+  if (raw === 'email_taken') return 'email_taken';
+  if (raw === 'email_bound') return 'email_bound';
+  if (raw === 'code_invalid') return 'code_invalid';
+  if (raw === 'code_rate_limited') return 'code_rate_limited';
+  if (raw === 'too_many_attempts') return 'too_many_attempts';
+  if (raw === 'email_send_failed') return 'email_send_failed';
+  if (raw === 'email_unavailable') return 'email_unavailable';
   if (raw === 'state_too_large') return 'state_too_large';
   if (raw === 'invalid_input') return 'invalid_input';
+  if (raw === 'invalid_credentials') return 'invalid_credentials';
   if (status === 401 || status === 403 || raw === 'unauthorized') return 'unauthorized';
   if (status === 409) return 'username_taken';
   if (status === 413) return 'state_too_large';
+  if (status === 429) return 'code_rate_limited';
   return 'unavailable';
 }
 
-/** 网络抖动时重试：这条链路实测会偶发超时，重试比让用户重填表单划算。 */
+function retryAfterOf(payload: unknown): number | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const value = Number((payload as { retryAfter?: unknown }).retryAfter);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** 网络抖动时重试：只重试幂等的 GET；注册/重置/绑定这类 POST 重放会误报已存在或验证码已用。 */
 async function request(
   path: string,
   init: RequestInit,
   token?: string,
 ): Promise<{ status: number; payload: unknown }> {
+  const delays = !init.method || init.method === 'GET' ? RETRY_DELAYS : [];
   let lastError: unknown;
-  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt += 1) {
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
     try {
       return await requestOnce(path, init, token);
     } catch (caught) {
@@ -140,8 +176,8 @@ async function request(
       if (!(caught instanceof CloudError) || caught.code !== 'network_error') {
         throw caught;
       }
-      if (attempt < RETRY_DELAYS.length) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      if (attempt < delays.length) {
+        await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
       }
     }
   }
@@ -206,30 +242,89 @@ function authResult(payload: unknown): { token: string; expiresAt: string; user:
   return parsed;
 }
 
-export async function cloudRegister(
-  username: string,
-  password: string,
-): Promise<{ token: string; expiresAt: string; user: CloudUser }> {
+export async function cloudRegister(input: {
+  username: string;
+  email: string;
+  code: string;
+  password: string;
+}): Promise<{ token: string; expiresAt: string; user: CloudUser }> {
   const { status, payload } = await request('/api/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(input),
   });
   if (status === 201) return authResult(payload);
-  if (status === 409) throw new CloudError('username_taken');
-  throw new CloudError(codeOfStatus(status, payload));
+  throw new CloudError(codeOfStatus(status, payload), retryAfterOf(payload));
 }
 
 export async function cloudLogin(
-  username: string,
+  account: string,
   password: string,
 ): Promise<{ token: string; expiresAt: string; user: CloudUser }> {
   const { status, payload } = await request('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ account, password }),
   });
   if (status === 200) return authResult(payload);
   if (status === 401) throw new CloudError('invalid_credentials');
-  throw new CloudError(codeOfStatus(status, payload));
+  throw new CloudError(codeOfStatus(status, payload), retryAfterOf(payload));
+}
+
+export type EmailCodePurpose = 'register' | 'reset' | 'bind';
+
+export interface EmailCodeResult {
+  retryAfter: number;
+  expiresIn: number;
+}
+
+/** 发码接口可能等 SMTP 十几秒，单独放宽超时，并且不自动重试（避免重复发信）。 */
+export async function cloudSendEmailCode(
+  email: string,
+  purpose: EmailCodePurpose,
+): Promise<EmailCodeResult> {
+  const { status, payload } = await requestOnce(
+    '/api/auth/email-code',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, purpose }),
+      signal: AbortSignal.timeout(EMAIL_CODE_TIMEOUT),
+    },
+  );
+  if (status === 200) {
+    return {
+      retryAfter: Math.max(1, Number((payload as { retryAfter?: unknown })?.retryAfter) || 60),
+      expiresIn: Math.max(60, Number((payload as { expiresIn?: unknown })?.expiresIn) || 600),
+    };
+  }
+  throw new CloudError(codeOfStatus(status, payload), retryAfterOf(payload));
+}
+
+export async function cloudResetPassword(
+  email: string,
+  code: string,
+  password: string,
+): Promise<void> {
+  const { status, payload } = await request('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, code, password }),
+  });
+  if (status === 200) return;
+  throw new CloudError(codeOfStatus(status, payload), retryAfterOf(payload));
+}
+
+/** 老账号绑定 QQ 邮箱：用户名 + 密码验明身份，邮箱验证码证明邮箱归属。 */
+export async function cloudBindEmail(input: {
+  username: string;
+  password: string;
+  email: string;
+  code: string;
+}): Promise<void> {
+  const { status, payload } = await request('/api/auth/bind-email', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (status === 200) return;
+  if (status === 401) throw new CloudError('invalid_credentials');
+  throw new CloudError(codeOfStatus(status, payload), retryAfterOf(payload));
 }
 
 export async function cloudLogout(token: string): Promise<void> {
@@ -348,9 +443,55 @@ export async function cloudPresence(token: string, userAgent: string): Promise<v
   );
 }
 
+export interface AdminActivityPoint {
+  date: string;
+  logins: number;
+  users: number;
+  registrations: number;
+}
+
+export interface AdminLocation {
+  country: string;
+  region: string;
+  city: string;
+  sessions: number;
+  users: number;
+}
+
+export interface AdminLogin {
+  username: string;
+  at: string;
+  country: string;
+  region: string;
+  city: string;
+  colo: string;
+  userAgent: string;
+}
+
+export interface AdminOnlineUser {
+  userId: string;
+  username: string;
+  lastSeenAt: string;
+  loginAt: string;
+  userAgent: string;
+  expiresAt: string;
+  country: string;
+  region: string;
+  city: string;
+  colo: string;
+  timezone: string;
+}
+
 export interface AdminStats {
   now: string;
-  runtime: { colo: string; region: string; country: string; onlineWindowMinutes: number };
+  runtime: {
+    colo: string;
+    region: string;
+    city: string;
+    country: string;
+    timezone: string;
+    onlineWindowMinutes: number;
+  };
   users: { total: number; today: number; week: number; online: number };
   sessions: { active: number; onlineSessions: number };
   storage: {
@@ -360,13 +501,10 @@ export interface AdminStats {
     lastUpdatedAt: string | null;
   };
   chat: { messages: number; authorsToday: number };
-  online: {
-    userId: string;
-    username: string;
-    lastSeenAt: string;
-    userAgent: string;
-    expiresAt: string;
-  }[];
+  activity: AdminActivityPoint[];
+  locations: AdminLocation[];
+  recentLogins: AdminLogin[];
+  online: AdminOnlineUser[];
   recent: {
     userId: string;
     username: string;

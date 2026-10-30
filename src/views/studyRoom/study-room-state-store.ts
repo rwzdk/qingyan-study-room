@@ -21,6 +21,7 @@ import {
   LEGACY_MIGRATED_KEY,
   localProfileKey,
   localStateKey,
+  logoutLocalAccount,
 } from '#/lib/local-auth';
 import {
   isValidJoinedAt,
@@ -491,6 +492,8 @@ function markSyncError(message: string, outcomeUnknown: boolean): void {
 
 function handleSessionError(status: number): boolean {
   if (status === 401) {
+    // 密码在别的设备被重置后，这个标签页的 token 已失效，必须回到登录页。
+    logoutLocalAccount();
     clearSession('unauthenticated');
     return true;
   }

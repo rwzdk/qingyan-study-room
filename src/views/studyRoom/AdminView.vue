@@ -6,6 +6,10 @@ import {
   readCloudSession,
   type AdminStats,
 } from '#/api/study-cloud';
+import AdminActivityChart from './admin/AdminActivityChart.vue';
+import AdminLocationChart from './admin/AdminLocationChart.vue';
+import AdminRegisterChart from './admin/AdminRegisterChart.vue';
+import { locationLabel } from './admin/admin-format';
 
 const stats = ref<AdminStats | null>(null);
 const loading = ref(true);
@@ -77,6 +81,13 @@ function deviceOf(ua: string): string {
 }
 
 const onlineWindow = computed(() => stats.value?.runtime.onlineWindowMinutes ?? 5);
+const totalLogins = computed(
+  () => stats.value?.activity.reduce((sum, point) => sum + point.logins, 0) ?? 0,
+);
+const totalRegistrations = computed(
+  () =>
+    stats.value?.activity.reduce((sum, point) => sum + point.registrations, 0) ?? 0,
+);
 
 onMounted(() => {
   void load();
@@ -141,6 +152,59 @@ onBeforeUnmount(() => {
         </article>
       </div>
 
+      <div class="admin-charts">
+        <section class="admin-panel admin-panel--wide">
+          <header class="admin-panel-head">
+            <h2>近 14 天活跃</h2>
+            <span>登录 {{ totalLogins }} 次</span>
+          </header>
+          <AdminActivityChart :points="stats.activity" />
+        </section>
+        <section class="admin-panel">
+          <header class="admin-panel-head">
+            <h2>每日注册</h2>
+            <span>{{ totalRegistrations }} 人</span>
+          </header>
+          <AdminRegisterChart :points="stats.activity" />
+        </section>
+      </div>
+
+      <div class="admin-grid">
+        <section class="admin-panel">
+          <header class="admin-panel-head">
+            <h2>登录地点</h2>
+            <span>近 30 天</span>
+          </header>
+          <AdminLocationChart :locations="stats.locations" />
+        </section>
+
+        <section class="admin-panel">
+          <header class="admin-panel-head">
+            <h2>最近登录</h2>
+            <span>{{ stats.recentLogins.length }}</span>
+          </header>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>地点</th>
+                  <th>时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in stats.recentLogins" :key="`${item.username}-${item.at}`">
+                  <td>{{ item.username }}</td>
+                  <td class="admin-device admin-location">{{ locationLabel(item) }}</td>
+                  <td>{{ relative(item.at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="!stats.recentLogins.length" class="admin-empty">还没有登录记录</p>
+          </div>
+        </section>
+      </div>
+
       <div class="admin-grid">
         <section class="admin-panel">
           <header class="admin-panel-head">
@@ -152,15 +216,17 @@ onBeforeUnmount(() => {
               <thead>
                 <tr>
                   <th>用户</th>
+                  <th>地点</th>
                   <th>最近活跃</th>
-                  <th>设备</th>
+                  <th class="admin-col-device">设备</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="user in stats.online" :key="user.userId">
                   <td>{{ user.username }}</td>
+                  <td class="admin-device admin-location">{{ locationLabel(user) }}</td>
                   <td>{{ relative(user.lastSeenAt) }}</td>
-                  <td class="admin-device">{{ deviceOf(user.userAgent) }}</td>
+                  <td class="admin-device admin-col-device">{{ deviceOf(user.userAgent) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -199,7 +265,10 @@ onBeforeUnmount(() => {
 
       <footer class="admin-runtime">
         <span>边缘节点 {{ stats.runtime.colo || '—' }}</span>
-        <span v-if="stats.runtime.region">{{ stats.runtime.region }}</span>
+        <span v-if="stats.runtime.city || stats.runtime.region">
+          {{ [stats.runtime.city, stats.runtime.region].filter(Boolean).join(' · ') }}
+        </span>
+        <span v-if="stats.runtime.timezone">{{ stats.runtime.timezone }}</span>
         <span v-if="stats.storage.lastUpdatedAt">
           最近一次数据写入 {{ relative(stats.storage.lastUpdatedAt) }}
         </span>
@@ -330,6 +399,12 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.admin-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
 .admin-panel {
   border: 1px solid rgb(255 255 255 / 0.08);
   border-radius: 16px;
@@ -360,21 +435,23 @@ onBeforeUnmount(() => {
 
 .admin-table-wrap {
   max-height: 320px;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 .admin-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
 }
 
 .admin-table th {
   position: sticky;
   top: 0;
+  z-index: 2;
   padding: 8px 18px;
   color: rgb(255 255 255 / 0.4);
-  background: rgb(9 17 14 / 0.9);
+  background: #0b1511;
   font-size: 11px;
   font-weight: 600;
   text-align: left;
@@ -394,6 +471,12 @@ onBeforeUnmount(() => {
 
 .admin-device {
   color: rgb(255 255 255 / 0.5);
+}
+
+.admin-location {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .admin-empty {
@@ -421,9 +504,19 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .admin-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .admin-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-col-device {
+    display: none;
   }
 }
 </style>

@@ -39,7 +39,7 @@ export const LEGACY_MIGRATED_KEY = 'qingyan-study-room:legacy-migrated-to:v1';
 const PBKDF2_ITERATIONS = 120_000;
 const USERNAME_MIN = 2;
 const USERNAME_MAX = 24;
-const PASSWORD_MIN = 6;
+const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 128;
 
 export const LOCAL_STORAGE_ERROR_MESSAGE =
@@ -232,6 +232,9 @@ function validatePassword(value: string): string {
   if (value.length > PASSWORD_MAX) {
     throw new Error(`密码最多 ${PASSWORD_MAX} 位`);
   }
+  if (!/[A-Za-z]/.test(value) || !/\d/.test(value) || /\s/.test(value)) {
+    throw new Error('密码需同时包含字母和数字，且不能有空格');
+  }
   return value;
 }
 
@@ -299,14 +302,25 @@ function setCurrentUser(user: LocalAccount): void {
   }
 }
 
+export interface RegisterExtras {
+  email?: string;
+  code?: string;
+}
+
 export async function registerLocalUser(
   usernameInput: string,
   passwordInput: string,
+  extras: RegisterExtras = {},
 ): Promise<LocalAccount> {
   const username = validateUsername(usernameInput);
   const password = validatePassword(passwordInput);
   if (cloudEnabled()) {
-    const result = await cloudRegister(username, password);
+    const email = (extras.email ?? '').trim().toLowerCase();
+    const code = (extras.code ?? '').trim();
+    if (!email || !code) {
+      throw new Error('请填写邮箱和验证码');
+    }
+    const result = await cloudRegister({ username, email, code, password });
     writeCloudSession({
       token: result.token,
       expiresAt: result.expiresAt,

@@ -355,6 +355,9 @@ onMounted(() => {
         remaining.value = restored;
         expiresAt = deadline;
         isRunning.value = true;
+        // 恢复运行中的计时也必须重新标记专注轮，否则切到后台时环境音会被静音，
+        // 只剩听不见的保活音，标签页仍可能被浏览器冻结。
+        focusRoundActive.value = true;
         armReminderForRound();
       } else {
         // 已过期：结算并切到下一阶段

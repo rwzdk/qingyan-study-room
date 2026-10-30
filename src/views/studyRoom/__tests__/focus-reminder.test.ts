@@ -149,8 +149,8 @@ describe('focus-reminder-engine', () => {
     engine.armReminder(at, 'bell', { onDue, onSpeak });
 
     expect(engine.hasArmedReminder()).toBe(true);
-    // 三个钟声各两枚振荡器（基频 + 泛音）。
-    expect(lastContext?.oscillators.length).toBe(6);
+    // 三个钟声各两枚振荡器（基频 + 泛音），外加一枚听不见的保活振荡器。
+    expect(lastContext?.oscillators.length).toBe(7);
     // 两个静音标记：到点、该播报语音。
     expect(lastContext?.bufferSources.length).toBe(2);
 
@@ -173,7 +173,8 @@ describe('focus-reminder-engine', () => {
       onSpeak: vi.fn(),
     });
     expect(engine.hasArmedReminder()).toBe(true);
-    expect(lastContext?.oscillators.length).toBe(0);
+    // 即使不响铃也保留保活振荡器，避免后台标签页被冻结。
+    expect(lastContext?.oscillators.length).toBe(1);
     expect(lastContext?.bufferSources.length).toBe(2);
   });
 
