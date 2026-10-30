@@ -142,7 +142,9 @@ onBeforeUnmount(() => {
            不会因为异常冒泡把整个自习室（含顶栏导航）卸载掉。 -->
       <TabErrorBoundary :reset-key="currentTab" class="study-room-tab-boundary">
         <!-- 专注页常驻挂载：切到小岛/计划等页签时计时器和结束提醒必须继续跑，
-             卸载 FocusTimer 会 cancelReminder()，专注结束时就没有提示音了。 -->
+             卸载 FocusTimer 会 cancelReminder()，专注结束时就没有提示音了。
+             因此它不参与下面的 v-if 互斥链，兜底分支必须显式跳过 focus，
+             否则「主页」会被当成默认页签和专注室一起渲染出来。 -->
         <section
           v-show="currentTab === 'focus'"
           class="study-room-panel study-room-focus-panel"
@@ -169,7 +171,7 @@ onBeforeUnmount(() => {
           <AdminView />
         </section>
 
-        <section v-else class="study-room-panel">
+        <section v-else-if="currentTab !== 'focus'" class="study-room-panel">
           <StudyHome />
         </section>
       </TabErrorBoundary>
